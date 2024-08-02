@@ -3,7 +3,7 @@ import yt_dlp as youtube_dl
 import random
 import asyncio
 from discord.ext import commands
-from private import token
+from private import token, prefix
 
 intents = discord.Intents.default()
 client = commands.Bot(command_prefix='', intents=intents)
@@ -16,11 +16,10 @@ ytdl_format_options = {
     'noplaylist': True,
     'nocheckcertificate': True,
     'ignoreerrors': False,
-    'logtostderr': False,
-    'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',  # bind to ipv4 since ipv6 addresses cause issues sometimes
+    'verbose': True,
 }
 youtube_dl.utils.bug_reports_message = lambda: ''
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
@@ -50,6 +49,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.query = []
 
     @commands.command()
     async def join(self, ctx, *, channel: discord.VoiceChannel):
@@ -65,33 +65,26 @@ class Music(commands.Cog):
         await ctx.voice_client.disconnect()
 
     @commands.command()
-    async def play(self, ctx, *, query):
-        """Plays a file from the local filesystem"""
-
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(query))
-        ctx.voice_client.play(source, after=lambda e: print(f'Player error: {e}') if e else None)
-
-        await ctx.send(f'Now playing: {query}')
+    async def clear(self, ctx):
+        self.query.clear()
+        await ctx.send(f'Очередь очищена')
 
     @commands.command()
-    async def yt(self, ctx, *, url):
-        """Plays from a url (almost anything youtube_dl supports)"""
-
-        async with ctx.typing():
-            player = await YTDLSource.from_url(url, loop=self.bot.loop)
-            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
-
-        await ctx.send(f'Now playing: {player.title}')
-
-    @commands.command()
-    async def stream(self, ctx, *, url):
-        """Streams from a url (same as yt, but doesn't predownload)"""
+    async def play(self, ctx, *, url):
+        """Streams from a url"""
 
         async with ctx.typing():
             player = await YTDLSource.from_url(url, loop=self.bot.loop, stream=True)
-            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
 
-        await ctx.send(f'Now playing: {player.title}')
+        if ctx.voice_client.is_playing():
+            #self.query.append(player)
+            await ctx.send(f'Добавлено в очередь (но она пока не работает): {player.title}')
+        else:
+            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
+            await ctx.send(f'Сейчас играет: {player.title}')
+
+    async def query_loop(self):
+        pass
 
     @commands.command()
     async def volume(self, ctx, volume: int):
@@ -110,8 +103,6 @@ class Music(commands.Cog):
         await ctx.voice_client.disconnect()
 
     @play.before_invoke
-    @yt.before_invoke
-    @stream.before_invoke
     async def ensure_voice(self, ctx):
         if ctx.voice_client is None:
             if ctx.author.voice:
@@ -127,7 +118,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(
-    command_prefix=commands.when_mentioned_or("!"),
+    command_prefix=commands.when_mentioned_or(prefix),
     description='Relatively simple music bot example',
     intents=intents,
 )
