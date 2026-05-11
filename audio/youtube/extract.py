@@ -3,10 +3,10 @@ import asyncio
 import logging
 import time
 
-from ..track import Track
+from ..track import PlaylistInfo, Track
 from .client import ytdl, ytm
 from .parse import YTM_PLAYLIST_RE, entry_to_track
-from .playlist import ytm_playlist_tracks
+from .playlist import _pick_playlist_thumbnail, ytm_playlist_info
 from .resolve import resolve
 
 
@@ -23,16 +23,16 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
         playlist_id = ytm_match.group(1)
         try:
             t0 = time.perf_counter()
-            tracks = await asyncio.wait_for(
+            info = await asyncio.wait_for(
                 loop.run_in_executor(
-                    None, lambda: ytm_playlist_tracks(playlist_id, resolver=resolve, limit=None)
+                    None, lambda: ytm_playlist_info(playlist_id, resolver=resolve, limit=None)
                 ),
                 timeout=timeout,
             )
-            _log(f'ytm playlist: {len(tracks)} tracks in {(time.perf_counter() - t0) * 1000:.0f} ms')
-            if tracks:
+            _log(f'ytm playlist: {len(info.tracks)} tracks in {(time.perf_counter() - t0) * 1000:.0f} ms')
+            if info.tracks:
                 _log(f'extract -> playlist in {(time.perf_counter() - t_total) * 1000:.0f} ms')
-                return 'playlist', tracks
+                return 'playlist', info
         except Exception as exc:
             print(f'ytmusic playlist fast-path failed for {playlist_id}: {exc!r} — falling back to yt-dlp')
 
@@ -49,8 +49,16 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
         tracks = [t for t in (entry_to_track(e, resolver=resolve) for e in data['entries']) if t]
         if not tracks:
             raise RuntimeError('Плейлист пуст или недоступен.')
+        pl_thumbnail = _pick_playlist_thumbnail(data.get('thumbnails') or [], tracks)
+        info = PlaylistInfo(
+            tracks=tracks,
+            title=data.get('title') or '',
+            url=data.get('webpage_url') or url,
+            thumbnail=pl_thumbnail,
+            kind='playlist',
+        )
         _log(f'extract -> playlist ({len(tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
-        return 'playlist', tracks
+        return 'playlist', info
 
     track = entry_to_track(data, resolver=resolve) or Track(
         url=data.get('webpage_url') or url,

@@ -10,7 +10,7 @@ from .parse import (
     SPOTIFY_TRACK_RE,
     item_to_track,
 )
-from .playlist import spotify_album_tracks, spotify_playlist_tracks
+from .playlist import spotify_album_info, spotify_playlist_info
 from .resolve import resolve
 
 
@@ -41,29 +41,29 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
     album_match = SPOTIFY_ALBUM_RE.search(url)
     if album_match:
         album_id = album_match.group(1)
-        tracks = await asyncio.wait_for(
+        info = await asyncio.wait_for(
             loop.run_in_executor(
-                None, lambda: spotify_album_tracks(album_id, resolver=resolve)
+                None, lambda: spotify_album_info(album_id, resolver=resolve)
             ),
             timeout=timeout,
         )
-        if not tracks:
+        if not info.tracks:
             raise RuntimeError('Альбом Spotify пуст или недоступен.')
-        _log(f'extract -> spotify album ({len(tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
-        return 'playlist', tracks
+        _log(f'extract -> spotify album ({len(info.tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
+        return 'playlist', info
 
     playlist_match = SPOTIFY_PLAYLIST_RE.search(url)
     if playlist_match:
         playlist_id = playlist_match.group(1)
-        tracks = await asyncio.wait_for(
+        info = await asyncio.wait_for(
             loop.run_in_executor(
-                None, lambda: spotify_playlist_tracks(playlist_id, resolver=resolve)
+                None, lambda: spotify_playlist_info(playlist_id, resolver=resolve)
             ),
             timeout=timeout,
         )
-        if not tracks:
+        if not info.tracks:
             raise RuntimeError('Плейлист Spotify пуст или недоступен.')
-        _log(f'extract -> spotify playlist ({len(tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
-        return 'playlist', tracks
+        _log(f'extract -> spotify playlist ({len(info.tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
+        return 'playlist', info
 
     raise RuntimeError('Это не похоже на ссылку Spotify.')

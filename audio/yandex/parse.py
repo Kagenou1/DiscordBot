@@ -33,4 +33,5 @@ def ya_track_to_track(ya_track, *, resolver, album_id=None) -> Track | None:
         url = f'https://music.yandex.ru/album/{album_id}/track/{ya_track.id}'
     else:
         url = f'https://music.yandex.ru/track/{ya_track.id}'
-    return Track(url=url, title=title, artist=artist, resolver=resolver)
+    thumbnail = cover_url(getattr(ya_track, 'cover_uri', None))
+    return Track(url=url, title=title, artist=artist, thumbnail=thumbnail, resolver=resolver)

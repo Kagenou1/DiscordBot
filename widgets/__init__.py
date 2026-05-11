@@ -3,6 +3,7 @@
 Здесь живёт всё, что бот рисует пользователю. Логика воспроизведения и
 очередей — в cogs/music.py; этот пакет про оформление.
 """
+from .added import build_added_playlist_embed, build_added_track_embed
 from .format import (
     PROGRESS_BAR_WIDTH,
     format_time,
@@ -14,6 +15,8 @@ from .queue import QUEUE_PAGE_SIZE, QueueView
 
 
 __all__ = [
+    'build_added_playlist_embed',
+    'build_added_track_embed',
     'format_time',
     'format_track_label',
     'progress_bar',

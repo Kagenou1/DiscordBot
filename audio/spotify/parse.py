@@ -23,9 +23,12 @@ def item_to_track(item: dict, *, resolver) -> Track | None:
     artists = item.get('artists') or []
     artist = ', '.join(a.get('name', '') for a in artists if a.get('name'))
     spotify_url = (item.get('external_urls') or {}).get('spotify') or ''
+    images = ((item.get('album') or {}).get('images') or []) or item.get('images') or []
+    thumbnail = images[0].get('url', '') if images else ''
     return Track(
         url=spotify_url,
         title=title,
         artist=artist,
+        thumbnail=thumbnail,
         resolver=resolver,
     )

@@ -13,6 +13,8 @@ from audio import Track, YTDLSource, extract
 from widgets import (
     PROGRESS_TICK_SECONDS,
     QueueView,
+    build_added_playlist_embed,
+    build_added_track_embed,
     build_now_playing_embed,
     format_track_label,
 )
@@ -271,15 +273,13 @@ class Music(commands.Cog):
 
         if kind == 'playlist':
             if shuffle:
-                random.shuffle(payload)
-                await ctx.send(f'Добавлено в очередь (перемешано): {len(payload)} треков из плейлиста.')
-            else:
-                await ctx.send(f'Добавлено в очередь: {len(payload)} треков из плейлиста.')
-            queue.extend(payload)
+                random.shuffle(payload.tracks)
+            queue.extend(payload.tracks)
+            await ctx.send(embed=build_added_playlist_embed(payload, shuffled=shuffle))
         else:
             queue.append(payload)
             if was_playing:
-                await ctx.send(f'Добавлено в очередь: {format_track_label(payload)}')
+                await ctx.send(embed=build_added_track_embed(payload))
 
         if not was_playing:
             await self._play_next(ctx)

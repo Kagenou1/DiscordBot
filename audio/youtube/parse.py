@@ -23,9 +23,15 @@ def entry_to_track(entry: dict, *, resolver) -> Track | None:
         artist = ', '.join(str(a) for a in artists_field) or artist
     elif isinstance(artists_field, str) and artists_field:
         artist = artists_field
+    thumbnail = entry.get('thumbnail') or ''
+    if not thumbnail:
+        thumbs = entry.get('thumbnails') or []
+        if thumbs:
+            thumbnail = thumbs[-1].get('url', '')
     return Track(
         url=entry_url,
         title=entry.get('title') or 'Без названия',
         artist=artist,
+        thumbnail=thumbnail,
         resolver=resolver,
     )

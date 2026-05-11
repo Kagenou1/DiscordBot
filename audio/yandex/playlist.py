@@ -1,15 +1,15 @@
 """Загрузка плейлиста/альбома Yandex Music через API."""
-from ..track import Track
+from ..track import PlaylistInfo, Track
 from .client import yandex_client
-from .parse import ya_track_to_track
+from .parse import cover_url, ya_track_to_track
 
 
-def yandex_album_tracks(album_id, *, resolver, limit: int | None = None) -> list[Track]:
+def yandex_album_info(album_id, *, resolver, limit: int | None = None) -> PlaylistInfo:
     if yandex_client is None:
         raise RuntimeError('Yandex Music клиент недоступен.')
     album = yandex_client.albums_with_tracks(album_id)
     if album is None:
-        return []
+        return PlaylistInfo(tracks=[], kind='album')
     tracks: list[Track] = []
     for volume in (album.volumes or []):
         for ya_track in volume:
@@ -18,8 +18,16 @@ def yandex_album_tracks(album_id, *, resolver, limit: int | None = None) -> list
                 continue
             tracks.append(track)
             if limit is not None and len(tracks) >= limit:
-                return tracks
-    return tracks
+                break
+        if limit is not None and len(tracks) >= limit:
+            break
+    return PlaylistInfo(
+        tracks=tracks,
+        title=getattr(album, 'title', '') or '',
+        url=f'https://music.yandex.ru/album/{album_id}',
+        thumbnail=cover_url(getattr(album, 'cover_uri', None)),
+        kind='album',
+    )
 
 
 def _materialize(playlist, *, resolver, limit: int | None) -> list[Track]:
@@ -35,23 +43,49 @@ def _materialize(playlist, *, resolver, limit: int | None) -> list[Track]:
     return tracks
 
 
-def yandex_playlist_tracks(kind, user_id, *, resolver, limit: int | None = None) -> list[Track]:
+def _playlist_meta(playlist, *, fallback_url: str, tracks: list[Track]) -> tuple[str, str, str]:
+    title = getattr(playlist, 'title', '') or getattr(playlist, 'name', '') or ''
+    thumbnail = ''
+    cover = getattr(playlist, 'cover', None)
+    # mosaic — это автосгенерированный коллаж из треков, Discord часто не может его прорезолвить
+    if cover is not None and getattr(cover, 'type', '') != 'mosaic':
+        thumbnail = cover_url(getattr(cover, 'uri', None))
+    if not thumbnail and tracks:
+        thumbnail = tracks[0].thumbnail
+    if not thumbnail:
+        thumbnail = cover_url(getattr(playlist, 'og_image', None))
+    return title, fallback_url, thumbnail
+
+
+def yandex_playlist_tracks(kind, user_id, *, resolver, limit: int | None = None) -> PlaylistInfo:
     if yandex_client is None:
         raise RuntimeError('Yandex Music клиент недоступен.')
     playlist = yandex_client.users_playlists(kind, user_id=user_id)
     if playlist is None:
-        return []
+        return PlaylistInfo(tracks=[])
     if isinstance(playlist, list):
         playlist = playlist[0] if playlist else None
     if playlist is None:
-        return []
-    return _materialize(playlist, resolver=resolver, limit=limit)
+        return PlaylistInfo(tracks=[])
+    tracks = _materialize(playlist, resolver=resolver, limit=limit)
+    title, url, thumbnail = _playlist_meta(
+        playlist,
+        fallback_url=f'https://music.yandex.ru/users/{user_id}/playlists/{kind}',
+        tracks=tracks,
+    )
+    return PlaylistInfo(tracks=tracks, title=title, url=url, thumbnail=thumbnail)
 
 
-def yandex_playlist_by_uuid(playlist_uuid: str, *, resolver, limit: int | None = None) -> list[Track]:
+def yandex_playlist_by_uuid(playlist_uuid: str, *, resolver, limit: int | None = None) -> PlaylistInfo:
     if yandex_client is None:
         raise RuntimeError('Yandex Music клиент недоступен.')
     playlist = yandex_client.playlist(playlist_uuid)
     if playlist is None:
-        return []
-    return _materialize(playlist, resolver=resolver, limit=limit)
+        return PlaylistInfo(tracks=[])
+    tracks = _materialize(playlist, resolver=resolver, limit=limit)
+    title, url, thumbnail = _playlist_meta(
+        playlist,
+        fallback_url=f'https://music.yandex.ru/playlists/{playlist_uuid}',
+        tracks=tracks,
+    )
+    return PlaylistInfo(tracks=tracks, title=title, url=url, thumbnail=thumbnail)

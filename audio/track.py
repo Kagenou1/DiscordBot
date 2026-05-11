@@ -20,10 +20,21 @@ Resolver = Callable[..., Awaitable['OpusAudioSource']]
 
 
 @dataclass
+class PlaylistInfo:
+    """Метаданные плейлиста/альбома для отображения при добавлении в очередь."""
+    tracks: list['Track']
+    title: str = ''
+    url: str = ''
+    thumbnail: str = ''
+    kind: str = 'playlist'  # 'playlist' или 'album'
+
+
+@dataclass
 class Track:
     url: str
     title: str
     artist: str = ''
+    thumbnail: str = ''
     resolver: Optional[Resolver] = field(default=None, repr=False)
     _resolved: Optional[dict] = field(default=None, repr=False)
     _resolved_at: float = field(default=0.0, repr=False)

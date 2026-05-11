@@ -12,7 +12,7 @@ from .parse import (
     ya_track_to_track,
 )
 from .playlist import (
-    yandex_album_tracks,
+    yandex_album_info,
     yandex_playlist_by_uuid,
     yandex_playlist_tracks,
 )
@@ -48,44 +48,44 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
     uuid_match = YA_PLAYLIST_UUID_RE.search(url)
     if uuid_match:
         playlist_uuid = uuid_match.group(1)
-        tracks = await asyncio.wait_for(
+        info = await asyncio.wait_for(
             loop.run_in_executor(
                 None, lambda: yandex_playlist_by_uuid(playlist_uuid, resolver=resolve)
             ),
             timeout=timeout,
         )
-        if not tracks:
+        if not info.tracks:
             raise RuntimeError('Плейлист Yandex Music пуст или недоступен.')
-        _log(f'extract -> yandex playlist({playlist_uuid[:8]}…) ({len(tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
-        return 'playlist', tracks
+        _log(f'extract -> yandex playlist({playlist_uuid[:8]}…) ({len(info.tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
+        return 'playlist', info
 
     playlist_match = YA_PLAYLIST_RE.search(url)
     if playlist_match:
         user_id = playlist_match.group(1)
         kind = playlist_match.group(2)
-        tracks = await asyncio.wait_for(
+        info = await asyncio.wait_for(
             loop.run_in_executor(
                 None, lambda: yandex_playlist_tracks(kind, user_id, resolver=resolve)
             ),
             timeout=timeout,
         )
-        if not tracks:
+        if not info.tracks:
             raise RuntimeError('Плейлист Yandex Music пуст или недоступен.')
-        _log(f'extract -> yandex playlist ({len(tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
-        return 'playlist', tracks
+        _log(f'extract -> yandex playlist ({len(info.tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
+        return 'playlist', info
 
     album_match = YA_ALBUM_RE.search(url)
     if album_match:
         album_id = album_match.group(1)
-        tracks = await asyncio.wait_for(
+        info = await asyncio.wait_for(
             loop.run_in_executor(
-                None, lambda: yandex_album_tracks(album_id, resolver=resolve)
+                None, lambda: yandex_album_info(album_id, resolver=resolve)
             ),
             timeout=timeout,
         )
-        if not tracks:
+        if not info.tracks:
             raise RuntimeError('Альбом Yandex Music пуст или недоступен.')
-        _log(f'extract -> yandex album ({len(tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
-        return 'playlist', tracks
+        _log(f'extract -> yandex album ({len(info.tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
+        return 'playlist', info
 
     raise RuntimeError('Это не похоже на ссылку Yandex Music.')
