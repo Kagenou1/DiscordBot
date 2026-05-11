@@ -9,4 +9,6 @@ deno_path = R''
 
 yandex_token = ''
 
+soundcloud_oauth_token = ''
+
 prefix = ''
