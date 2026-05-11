@@ -32,6 +32,7 @@ class Music(commands.Cog):
         self._current: dict[int, Track] = {}
         self._loop_modes: dict[int, str] = {}
         self._skip_loop_once: set[int] = set()
+        self._played: dict[int, list[Track]] = {}
         self._np_msg: dict[int, discord.Message] = {}
         self._np_source: dict[int, YTDLSource] = {}
         self._np_task: dict[int, asyncio.Task] = {}
@@ -136,6 +137,15 @@ class Music(commands.Cog):
                 current = self._current.get(gid)
                 if current is not None:
                     queue.appendleft(current)
+        elif loop_mode == 'queue':
+            current = self._current.get(gid)
+            if current is not None:
+                current._resolved = None
+                current._resolved_at = 0.0
+                self._played.setdefault(gid, []).append(current)
+            if not queue and self._played.get(gid):
+                queue.extend(self._played[gid])
+                self._played[gid].clear()
 
         t_total = time.perf_counter()
         chosen: tuple[Track, YTDLSource] | None = None
@@ -226,6 +236,7 @@ class Music(commands.Cog):
         self._current.pop(gid, None)
         self._loop_modes.pop(gid, None)
         self._skip_loop_once.discard(gid)
+        self._played.pop(gid, None)
 
     @commands.hybrid_command(description='Отключиться от голосового канала')
     async def leave(self, ctx):
@@ -367,24 +378,31 @@ class Music(commands.Cog):
         await ctx.send(f'Перехожу к #{position}: {format_track_label(target)}.')
 
     @commands.hybrid_command(description='Управлять режимом повтора')
-    @app_commands.describe(mode='off — без повтора, track — повторять текущий трек')
+    @app_commands.describe(mode='off — без повтора, track — повторять трек, queue — повторять очередь')
     @app_commands.choices(mode=[
         app_commands.Choice(name='off', value='off'),
         app_commands.Choice(name='track', value='track'),
+        app_commands.Choice(name='queue', value='queue'),
     ])
     async def loop(self, ctx, mode: app_commands.Choice[str]):
         """Управлять режимом повтора."""
         value = mode.value if hasattr(mode, 'value') else str(mode)
-        if value not in ('off', 'track'):
-            return await ctx.send('Доступные режимы: off, track.')
+        if value not in ('off', 'track', 'queue'):
+            return await ctx.send('Доступные режимы: off, track, queue.')
         gid = ctx.guild.id
+        prev = self._loop_modes.get(gid, 'off')
+        if prev == 'queue' and value != 'queue':
+            self._played.pop(gid, None)
         if value == 'off':
             self._loop_modes.pop(gid, None)
             self._skip_loop_once.discard(gid)
             await ctx.send('Повтор выключен.')
-        else:
+        elif value == 'track':
             self._loop_modes[gid] = value
             await ctx.send('Повтор: текущий трек.')
+        else:
+            self._loop_modes[gid] = value
+            await ctx.send('Повтор: очередь.')
 
     @commands.hybrid_command(name='queue', description='Показать очередь')
     async def queue_cmd(self, ctx):
