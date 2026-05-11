@@ -7,4 +7,6 @@ spotify_redirect_uri = ''
 ffmpeg_path = R''
 deno_path = R''
 
+yandex_token = ''
+
 prefix = ''
