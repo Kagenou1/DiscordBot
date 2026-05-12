@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from audio import Track, YTDLSource, extract
+from logs import close_guild_session, open_guild_session, session_log
 from widgets import (
     PROGRESS_TICK_SECONDS,
     QueueView,
@@ -112,7 +113,7 @@ class Music(commands.Cog):
         except asyncio.CancelledError:
             pass
 
-    def _stop_now_playing(self, gid: int, *, final_fill: bool = False):
+    async def _stop_now_playing(self, gid: int, *, final_fill: bool = False):
         task = self._np_task.pop(gid, None)
         if task is not None and not task.done():
             task.cancel()
@@ -129,29 +130,28 @@ class Music(commands.Cog):
                     else:
                         elapsed = min(elapsed, duration)
                 embed = build_now_playing_embed(track, source, elapsed, state='stopped')
-                asyncio.create_task(self._safe_edit(msg, embed))
+                try:
+                    await msg.edit(embed=embed)
+                except discord.HTTPException:
+                    pass
         self._track_start.pop(gid, None)
         self._pause_start.pop(gid, None)
         self._pause_total.pop(gid, None)
 
-    async def _safe_edit(self, msg: discord.Message, embed: discord.Embed):
-        try:
-            await msg.edit(embed=embed)
-        except discord.HTTPException:
-            pass
-
     def _after_play(self, ctx, error):
         if error:
             print(f'Player error: {error}')
+            session_log(ctx.guild.id, f'player error: {error!r}')
         fut = asyncio.run_coroutine_threadsafe(self._play_next(ctx), self.bot.loop)
         try:
             fut.result()
         except Exception as exc:
             print(f'play_next error: {exc}')
+            session_log(ctx.guild.id, f'play_next error: {exc!r}')
 
     async def _play_next(self, ctx):
         gid = ctx.guild.id
-        self._stop_now_playing(gid, final_fill=True)
+        await self._stop_now_playing(gid, final_fill=True)
         queue = self.get_queue(gid)
         if ctx.voice_client is None:
             self._drop_prefetched(gid)
@@ -198,6 +198,7 @@ class Music(commands.Cog):
                 chosen = (track, source)
             except Exception as exc:
                 print(f'failed to load {track.title!r}: {exc!r}')
+                session_log(gid, f'failed to load {track.title!r}: {exc!r}')
                 await ctx.send(f'Пропускаю «{track.title}» (ошибка загрузки).')
 
         if chosen is None:
@@ -208,6 +209,7 @@ class Music(commands.Cog):
         self._current[gid] = track
         ctx.voice_client.play(source, after=lambda e: self._after_play(ctx, e))
         _log(f'play_next -> playing {track.title!r} in {(time.perf_counter() - t_total) * 1000:.0f} ms (prefetched={used_prefetched})')
+        session_log(gid, f'playing: {format_track_label(track)} (prefetched={used_prefetched})')
 
         self._track_start[gid] = time.monotonic()
         self._pause_total[gid] = 0.0
@@ -254,14 +256,17 @@ class Music(commands.Cog):
             channel = ctx.author.voice.channel
         if ctx.voice_client is not None:
             await ctx.voice_client.move_to(channel)
+            session_log(ctx.guild.id, f'moved to voice channel: {channel.name}')
         else:
             await channel.connect(self_deaf=True)
+            open_guild_session(ctx.guild.id, ctx.guild.name)
+            session_log(ctx.guild.id, f'joined voice channel: {channel.name}')
         await ctx.send(f'Подключился к {channel.name}.')
 
-    def _reset_session(self, gid: int):
+    async def _reset_session(self, gid: int):
         self.get_queue(gid).clear()
         self._drop_prefetched(gid)
-        self._stop_now_playing(gid)
+        await self._stop_now_playing(gid)
         self._current.pop(gid, None)
         self._loop_modes.pop(gid, None)
         self._skip_loop_once.discard(gid)
@@ -273,14 +278,17 @@ class Music(commands.Cog):
         if ctx.voice_client is None:
             return await ctx.send('Я не подключён к голосовому каналу.')
         await self._ensure_deferred(ctx)
-        self._reset_session(ctx.guild.id)
+        await self._reset_session(ctx.guild.id)
         await ctx.voice_client.disconnect()
+        session_log(ctx.guild.id, 'left voice channel (/leave)')
+        close_guild_session(ctx.guild.id)
         await ctx.send('Отключился.')
 
     @commands.hybrid_command(description='Очистить очередь')
     async def clear(self, ctx):
         """Очистить очередь."""
-        self._reset_session(ctx.guild.id)
+        await self._reset_session(ctx.guild.id)
+        session_log(ctx.guild.id, 'queue cleared (/clear)')
         await ctx.send('Очередь очищена.')
 
     async def _enqueue(self, ctx, url: str, *, shuffle: bool):
@@ -288,11 +296,14 @@ class Music(commands.Cog):
         try:
             kind, payload = await extract(url, loop=self.bot.loop)
         except asyncio.TimeoutError:
+            session_log(ctx.guild.id, f'enqueue timeout: {url!r}')
             return await ctx.send('Таймаут при загрузке. Попробуй ещё раз.')
         except youtube_dl.utils.DownloadError as exc:
+            session_log(ctx.guild.id, f'enqueue download error: {url!r}: {exc!r}')
             return await ctx.send(f'Не удалось загрузить: {exc}')
         except Exception as exc:
             print(f'enqueue error: {exc!r}')
+            session_log(ctx.guild.id, f'enqueue error: {url!r}: {exc!r}')
             return await ctx.send(f'Ошибка: {exc}')
 
         queue = self.get_queue(ctx.guild.id)
@@ -302,9 +313,15 @@ class Music(commands.Cog):
             if shuffle:
                 random.shuffle(payload.tracks)
             queue.extend(payload.tracks)
+            session_log(
+                ctx.guild.id,
+                f'queued {payload.kind}: {payload.title!r} ({len(payload.tracks)} tracks'
+                f'{", shuffled" if shuffle else ""})',
+            )
             await ctx.send(embed=build_added_playlist_embed(payload, shuffled=shuffle))
         else:
             queue.append(payload)
+            session_log(ctx.guild.id, f'queued track: {format_track_label(payload)}')
             if was_playing:
                 await ctx.send(embed=build_added_track_embed(payload))
 
@@ -347,6 +364,7 @@ class Music(commands.Cog):
         if gid not in self._pause_start:
             self._pause_start[gid] = time.monotonic()
         await self._refresh_now_playing(gid)
+        session_log(gid, 'paused')
         await ctx.send('Пауза.')
 
     @commands.hybrid_command(description='Продолжить воспроизведение после паузы')
@@ -360,6 +378,7 @@ class Music(commands.Cog):
         if pause_start is not None:
             self._pause_total[gid] = self._pause_total.get(gid, 0.0) + (time.monotonic() - pause_start)
         await self._refresh_now_playing(gid)
+        session_log(gid, 'resumed')
         await ctx.send('Продолжаю.')
 
     @commands.hybrid_command(description='Пропустить треки')
@@ -381,6 +400,7 @@ class Music(commands.Cog):
             self._skip_loop_once.add(gid)
         ctx.voice_client.stop()
         total = 1 + to_drop
+        session_log(gid, f'skipped {total} track(s)')
         await ctx.send(f'Пропущено треков: {total}.' if total > 1 else 'Трек пропущен.')
 
     @commands.hybrid_command(description='Прыгнуть к треку в очереди по номеру')
@@ -404,6 +424,7 @@ class Music(commands.Cog):
             self._skip_loop_once.add(gid)
         target = queue[0]
         ctx.voice_client.stop()
+        session_log(gid, f'jumped to #{position}: {format_track_label(target)}')
         await ctx.send(f'Перехожу к #{position}: {format_track_label(target)}.')
 
     @commands.hybrid_command(description='Управлять режимом повтора')
@@ -432,6 +453,7 @@ class Music(commands.Cog):
         else:
             self._loop_modes[gid] = value
             await ctx.send('Повтор: очередь.')
+        session_log(gid, f'loop mode: {value}')
 
     @commands.hybrid_command(name='queue', description='Показать очередь')
     async def queue_cmd(self, ctx):
@@ -447,16 +469,22 @@ class Music(commands.Cog):
     async def stop(self, ctx):
         """Остановить воспроизведение и отключиться."""
         await self._ensure_deferred(ctx)
-        self._reset_session(ctx.guild.id)
+        gid = ctx.guild.id
+        await self._reset_session(gid)
         if ctx.voice_client is not None:
             await ctx.voice_client.disconnect()
+        session_log(gid, 'stopped & disconnected (/stop)')
+        close_guild_session(gid)
         await ctx.send('Остановлен.')
 
     async def _ensure_voice(self, ctx):
         await self._ensure_deferred(ctx)
         if ctx.voice_client is None:
             if ctx.author.voice:
-                await ctx.author.voice.channel.connect(self_deaf=True)
+                channel = ctx.author.voice.channel
+                await channel.connect(self_deaf=True)
+                open_guild_session(ctx.guild.id, ctx.guild.name)
+                session_log(ctx.guild.id, f'auto-joined voice channel: {channel.name}')
             else:
                 await ctx.send('Вы не подключены к голосовому каналу.')
                 raise commands.CommandError('Author not connected to a voice channel.')

@@ -10,3 +10,5 @@ cookies.txt
 
 third_party/*
 !third_party/.gitkeep
+
+log/

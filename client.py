@@ -12,14 +12,9 @@ except ImportError:
 import discord
 from discord.ext import commands
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%H:%M:%S',
-)
-logging.getLogger('discord.voice_client').setLevel(logging.WARNING)
-logging.getLogger('discord.player').setLevel(logging.WARNING)
-logging.getLogger('discord.gateway').setLevel(logging.WARNING)
+from logs import daily_cleanup_loop, setup_logging
+
+setup_logging()
 
 
 def _boost_process_priority():
@@ -60,6 +55,7 @@ class MusicBot(commands.Bot):
     async def setup_hook(self):
         await self.load_extension('cogs.music')
         asyncio.create_task(warm_up(asyncio.get_running_loop()))
+        asyncio.create_task(daily_cleanup_loop())
         synced = await self.tree.sync()
         print(f'Synced {len(synced)} slash commands')
 
