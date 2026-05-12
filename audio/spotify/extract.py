@@ -1,0 +1,69 @@
+"""Главный извлекатель Spotify: ссылка -> Track или список Track."""
+import asyncio
+import logging
+import time
+
+from .client import sp
+from .parse import (
+    SPOTIFY_ALBUM_RE,
+    SPOTIFY_PLAYLIST_RE,
+    SPOTIFY_TRACK_RE,
+    item_to_track,
+)
+from .playlist import spotify_album_tracks, spotify_playlist_tracks
+from .resolve import resolve
+
+
+_log = logging.getLogger('audio').info
+
+
+async def extract(url: str, *, loop=None, timeout: int = 30):
+    """Возвращает ('track', Track) или ('playlist', list[Track])."""
+    loop = loop or asyncio.get_running_loop()
+    t_total = time.perf_counter()
+
+    if sp is None:
+        raise RuntimeError('Spotify-клиент не инициализирован.')
+
+    track_match = SPOTIFY_TRACK_RE.search(url)
+    if track_match:
+        track_id = track_match.group(1)
+        item = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: sp.track(track_id)),
+            timeout=timeout,
+        )
+        track = item_to_track(item, resolver=resolve)
+        if track is None:
+            raise RuntimeError('Трек Spotify недоступен.')
+        _log(f'extract -> spotify track in {(time.perf_counter() - t_total) * 1000:.0f} ms')
+        return 'track', track
+
+    album_match = SPOTIFY_ALBUM_RE.search(url)
+    if album_match:
+        album_id = album_match.group(1)
+        tracks = await asyncio.wait_for(
+            loop.run_in_executor(
+                None, lambda: spotify_album_tracks(album_id, resolver=resolve)
+            ),
+            timeout=timeout,
+        )
+        if not tracks:
+            raise RuntimeError('Альбом Spotify пуст или недоступен.')
+        _log(f'extract -> spotify album ({len(tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
+        return 'playlist', tracks
+
+    playlist_match = SPOTIFY_PLAYLIST_RE.search(url)
+    if playlist_match:
+        playlist_id = playlist_match.group(1)
+        tracks = await asyncio.wait_for(
+            loop.run_in_executor(
+                None, lambda: spotify_playlist_tracks(playlist_id, resolver=resolve)
+            ),
+            timeout=timeout,
+        )
+        if not tracks:
+            raise RuntimeError('Плейлист Spotify пуст или недоступен.')
+        _log(f'extract -> spotify playlist ({len(tracks)} tracks) in {(time.perf_counter() - t_total) * 1000:.0f} ms')
+        return 'playlist', tracks
+
+    raise RuntimeError('Это не похоже на ссылку Spotify.')
