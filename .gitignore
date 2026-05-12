@@ -7,3 +7,6 @@ private.py
 .cache
 cookies.txt
 *__pycache__*
+
+third_party/*
+!third_party/.gitkeep

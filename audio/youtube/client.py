@@ -1,14 +1,18 @@
 """Инициализация yt-dlp и ytmusicapi (синглтоны на процесс)."""
 import logging
 import os
+from pathlib import Path
 
 import yt_dlp as youtube_dl
-
-from private import deno_path
 
 
 _log = logging.getLogger('audio').info
 
+
+# Локальный бинарник в third_party/ или фолбэк на PATH-lookup
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_LOCAL_DENO = _PROJECT_ROOT / 'third_party' / ('deno.exe' if os.name == 'nt' else 'deno')
+deno_path = str(_LOCAL_DENO) if _LOCAL_DENO.exists() else 'deno'
 
 _deno_dir = os.path.dirname(deno_path)
 if _deno_dir and _deno_dir not in os.environ.get('PATH', '').split(os.pathsep):

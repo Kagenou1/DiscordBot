@@ -1,12 +1,18 @@
 """ffmpeg-обёртка для воспроизведения готового стрим-URL."""
 import logging
+import os
+from pathlib import Path
 
 import discord
 
-from private import ffmpeg_path
-
 
 _log = logging.getLogger('audio').info
+
+
+# Локальный бинарник в third_party/ffmpeg/bin/ или фолбэк на PATH-lookup
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_LOCAL_FFMPEG = _PROJECT_ROOT / 'third_party' / 'ffmpeg' / 'bin' / ('ffmpeg.exe' if os.name == 'nt' else 'ffmpeg')
+ffmpeg_path = str(_LOCAL_FFMPEG) if _LOCAL_FFMPEG.exists() else 'ffmpeg'
 
 
 ffmpeg_options = {
