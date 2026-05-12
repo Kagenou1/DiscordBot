@@ -9,6 +9,7 @@ from .format import (
     format_time,
     format_track_label,
     progress_bar,
+    source_label,
 )
 from .now_playing import PROGRESS_TICK_SECONDS, build_now_playing_embed
 from .queue import QUEUE_PAGE_SIZE, QueueView
@@ -25,4 +26,5 @@ __all__ = [
     'build_now_playing_embed',
     'QUEUE_PAGE_SIZE',
     'QueueView',
+    'source_label',
 ]
