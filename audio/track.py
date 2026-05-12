@@ -2,8 +2,9 @@
 
 Track хранит результат extract'а (если он только что был сделан) и при
 следующем make_source использует его, минуя повторный сетевой запрос.
-Стрим-URL у YouTube живёт ~6 ч, мы переиспользуем кэш только в течение
-коротких 5 минут — для пути «пользователь кинул трек → бот сразу его играет».
+Стрим-URL у YouTube живёт ~6 ч; мы переиспользуем кэш до 30 минут —
+покрывает «добавил пачку треков и слушает по очереди» без повторных
+extract_info.
 """
 import time
 from dataclasses import dataclass, field
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
     from .source import OpusAudioSource
 
 
-_RESOLVED_TTL = 300.0
+_RESOLVED_TTL = 1800.0
 
 
 Resolver = Callable[..., Awaitable['OpusAudioSource']]

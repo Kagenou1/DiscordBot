@@ -66,7 +66,7 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
         resolver=resolve,
     )
     # yt-dlp нормализует music.youtube.com -> www.youtube.com и отдаёт 16:9 видео-кадр;
-    # для исходных music.youtube.com ссылок берём квадратную обложку через ytmusicapi
+    # для исходных music.youtube.com ссылок дотягиваем квадратную обложку.
     ytm_match = YTM_WATCH_RE.search(url)
     if ytm_match:
         square = await loop.run_in_executor(None, ytm_square_thumbnail, ytm_match.group(1))

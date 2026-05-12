@@ -3,12 +3,21 @@ from ..track import PlaylistInfo, Track
 from .client import ytm
 
 
+# Кэш квадратной обложки YTM-трека: video_id -> url. Растёт за время жизни процесса,
+# но запись очень лёгкая (короткая строка) и реальный лимит — количество разных
+# треков, которые юзер реально открывал. Дёшевле любого LRU.
+_thumbnail_cache: dict[str, str] = {}
+
+
 def ytm_square_thumbnail(video_id: str) -> str:
     """Квадратная обложка альбома для YT Music трека через watch-плейлист.
 
     yt-dlp для music.youtube.com возвращает 16:9 видеокадр; ytm.get_watch_playlist
     отдаёт ту же square-обложку, что мы используем в эмбеде «добавлен плейлист».
     """
+    cached = _thumbnail_cache.get(video_id)
+    if cached is not None:
+        return cached
     if ytm is None:
         return ''
     try:
@@ -19,7 +28,10 @@ def ytm_square_thumbnail(video_id: str) -> str:
     if not tracks:
         return ''
     thumbs = tracks[0].get('thumbnail') or []
-    return thumbs[-1].get('url', '') if thumbs else ''
+    url = thumbs[-1].get('url', '') if thumbs else ''
+    if url:
+        _thumbnail_cache[video_id] = url
+    return url
 
 
 def _is_auto_yt_cover(url: str) -> bool:

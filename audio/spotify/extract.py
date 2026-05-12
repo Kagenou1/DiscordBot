@@ -42,9 +42,7 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
     if album_match:
         album_id = album_match.group(1)
         info = await asyncio.wait_for(
-            loop.run_in_executor(
-                None, lambda: spotify_album_info(album_id, resolver=resolve)
-            ),
+            spotify_album_info(album_id, resolver=resolve, loop=loop),
             timeout=timeout,
         )
         if not info.tracks:
@@ -56,9 +54,7 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
     if playlist_match:
         playlist_id = playlist_match.group(1)
         info = await asyncio.wait_for(
-            loop.run_in_executor(
-                None, lambda: spotify_playlist_info(playlist_id, resolver=resolve)
-            ),
+            spotify_playlist_info(playlist_id, resolver=resolve, loop=loop),
             timeout=timeout,
         )
         if not info.tracks:
