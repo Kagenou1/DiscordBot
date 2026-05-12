@@ -3,6 +3,25 @@ from ..track import PlaylistInfo, Track
 from .client import ytm
 
 
+def ytm_square_thumbnail(video_id: str) -> str:
+    """Квадратная обложка альбома для YT Music трека через watch-плейлист.
+
+    yt-dlp для music.youtube.com возвращает 16:9 видеокадр; ytm.get_watch_playlist
+    отдаёт ту же square-обложку, что мы используем в эмбеде «добавлен плейлист».
+    """
+    if ytm is None:
+        return ''
+    try:
+        data = ytm.get_watch_playlist(video_id, limit=1)
+    except Exception:
+        return ''
+    tracks = data.get('tracks') or []
+    if not tracks:
+        return ''
+    thumbs = tracks[0].get('thumbnail') or []
+    return thumbs[-1].get('url', '') if thumbs else ''
+
+
 def _is_auto_yt_cover(url: str) -> bool:
     # автосгенерированные коллажи YT Music отдаются с домена каналов yt3.googleusercontent.com
     # с суффиксом =sN — Discord их часто не может прорезолвить

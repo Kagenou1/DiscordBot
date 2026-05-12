@@ -67,6 +67,31 @@ class Music(commands.Cog):
             elapsed -= time.monotonic() - pause_start
         return max(0.0, elapsed)
 
+    def _playback_state(self, gid: int) -> str:
+        guild = self.bot.get_guild(gid)
+        vc = guild.voice_client if guild is not None else None
+        if vc is None:
+            return 'stopped'
+        if vc.is_paused():
+            return 'paused'
+        if vc.is_playing():
+            return 'playing'
+        return 'stopped'
+
+    async def _refresh_now_playing(self, gid: int):
+        msg = self._np_msg.get(gid)
+        source = self._np_source.get(gid)
+        track = self._current.get(gid)
+        if msg is None or source is None or track is None:
+            return
+        embed = build_now_playing_embed(
+            track, source, self._elapsed(gid), state=self._playback_state(gid),
+        )
+        try:
+            await msg.edit(embed=embed)
+        except discord.HTTPException:
+            pass
+
     async def _now_playing_updater(self, gid: int, source: YTDLSource, track: Track):
         duration = float(source.data.get('duration') or 0)
         try:
@@ -77,7 +102,9 @@ class Music(commands.Cog):
                     return
                 elapsed = self._elapsed(gid)
                 try:
-                    await msg.edit(embed=build_now_playing_embed(track, source, elapsed))
+                    await msg.edit(embed=build_now_playing_embed(
+                        track, source, elapsed, state=self._playback_state(gid),
+                    ))
                 except discord.HTTPException:
                     return
                 if duration > 0 and elapsed >= duration:
@@ -101,7 +128,7 @@ class Music(commands.Cog):
                         elapsed = duration
                     else:
                         elapsed = min(elapsed, duration)
-                embed = build_now_playing_embed(track, source, elapsed)
+                embed = build_now_playing_embed(track, source, elapsed, state='stopped')
                 asyncio.create_task(self._safe_edit(msg, embed))
         self._track_start.pop(gid, None)
         self._pause_start.pop(gid, None)
@@ -185,7 +212,7 @@ class Music(commands.Cog):
         self._track_start[gid] = time.monotonic()
         self._pause_total[gid] = 0.0
         self._pause_start.pop(gid, None)
-        msg = await ctx.send(embed=build_now_playing_embed(track, source, 0.0))
+        msg = await ctx.send(embed=build_now_playing_embed(track, source, 0.0, state='playing'))
         self._np_msg[gid] = msg
         self._np_source[gid] = source
         self._np_task[gid] = asyncio.create_task(self._now_playing_updater(gid, source, track))
@@ -319,6 +346,7 @@ class Music(commands.Cog):
         gid = ctx.guild.id
         if gid not in self._pause_start:
             self._pause_start[gid] = time.monotonic()
+        await self._refresh_now_playing(gid)
         await ctx.send('Пауза.')
 
     @commands.hybrid_command(description='Продолжить воспроизведение после паузы')
@@ -331,6 +359,7 @@ class Music(commands.Cog):
         pause_start = self._pause_start.pop(gid, None)
         if pause_start is not None:
             self._pause_total[gid] = self._pause_total.get(gid, 0.0) + (time.monotonic() - pause_start)
+        await self._refresh_now_playing(gid)
         await ctx.send('Продолжаю.')
 
     @commands.hybrid_command(description='Пропустить треки')

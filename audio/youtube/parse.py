@@ -5,6 +5,7 @@ from ..track import Track
 
 
 YTM_PLAYLIST_RE = re.compile(r'music\.youtube\.com/playlist\?.*\blist=([\w-]+)')
+YTM_WATCH_RE = re.compile(r'music\.youtube\.com/watch\?.*\bv=([\w-]+)')
 
 
 def entry_to_track(entry: dict, *, resolver) -> Track | None:

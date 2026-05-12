@@ -5,8 +5,8 @@ import time
 
 from ..track import PlaylistInfo, Track
 from .client import ytdl, ytm
-from .parse import YTM_PLAYLIST_RE, entry_to_track
-from .playlist import _pick_playlist_thumbnail, ytm_playlist_info
+from .parse import YTM_PLAYLIST_RE, YTM_WATCH_RE, entry_to_track
+from .playlist import _pick_playlist_thumbnail, ytm_playlist_info, ytm_square_thumbnail
 from .resolve import resolve
 
 
@@ -65,6 +65,13 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
         title=data.get('title') or 'Без названия',
         resolver=resolve,
     )
+    # yt-dlp нормализует music.youtube.com -> www.youtube.com и отдаёт 16:9 видео-кадр;
+    # для исходных music.youtube.com ссылок берём квадратную обложку через ytmusicapi
+    ytm_match = YTM_WATCH_RE.search(url)
+    if ytm_match:
+        square = await loop.run_in_executor(None, ytm_square_thumbnail, ytm_match.group(1))
+        if square:
+            track.thumbnail = square
     if data.get('url'):
         track.cache_resolved(data)
     _log(f'extract -> track in {(time.perf_counter() - t_total) * 1000:.0f} ms')
