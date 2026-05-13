@@ -16,7 +16,9 @@ from widgets import (
     QueueView,
     build_added_playlist_embed,
     build_added_track_embed,
+    build_current_track_embed,
     build_now_playing_embed,
+    format_time,
     format_track_label,
 )
 
@@ -25,6 +27,21 @@ _log = logging.getLogger('audio').info
 
 
 ALLOWED_REMAINING_LENGTH = 1
+
+
+def _parse_time_position(text: str) -> float | None:
+    """Разобрать '90', '1:30', '1:02:03' в секунды. None при невалидном вводе."""
+    parts = text.strip().split(':')
+    try:
+        if len(parts) == 1:
+            return float(parts[0])
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + float(parts[1])
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    except ValueError:
+        return None
+    return None
 
 
 class Music(commands.Cog):
@@ -329,30 +346,31 @@ class Music(commands.Cog):
             await self._play_next(ctx)
 
     @commands.hybrid_command(description='Воспроизвести трек или плейлист')
-    @app_commands.describe(url='Ссылка на YouTube (видео/плейлист) или поисковый запрос')
-    async def play(self, ctx, *, url: str):
+    @app_commands.describe(
+        url='Ссылка на трек/плейлист или поисковый запрос',
+        shuffle='Перемешать плейлист при добавлении (для одного трека игнорируется)',
+    )
+    async def play(self, ctx, *, url: str, shuffle: bool = False):
         """Воспроизвести трек или плейлист."""
-        await self._enqueue(ctx, url, shuffle=False)
+        await self._enqueue(ctx, url, shuffle=shuffle)
 
-    @commands.hybrid_command(description='Перемешать плейлист или текущую очередь')
-    @app_commands.describe(url='Ссылка на плейлист (без неё перемешается текущая очередь)')
-    async def shuffle(self, ctx, *, url: str = None):
-        """Перемешать плейлист или текущую очередь."""
-        if url is None:
-            await self._ensure_deferred(ctx)
-            gid = ctx.guild.id
-            queue = self.get_queue(gid)
-            if not queue:
-                return await ctx.send('Очередь пуста — нечего перемешивать.')
-            items = list(queue)
-            random.shuffle(items)
-            queue.clear()
-            queue.extend(items)
-            self._drop_prefetched(gid)
-            if ctx.voice_client is not None and (ctx.voice_client.is_playing() or ctx.voice_client.is_paused()):
-                asyncio.create_task(self._prefetch(gid))
-            return await ctx.send(f'Очередь перемешана ({len(items)} треков).')
-        await self._enqueue(ctx, url, shuffle=True)
+    @commands.hybrid_command(description='Перемешать текущую очередь')
+    async def shuffle(self, ctx):
+        """Перемешать текущую очередь."""
+        await self._ensure_deferred(ctx)
+        gid = ctx.guild.id
+        queue = self.get_queue(gid)
+        if not queue:
+            return await ctx.send('Очередь пуста — нечего перемешивать.')
+        items = list(queue)
+        random.shuffle(items)
+        queue.clear()
+        queue.extend(items)
+        self._drop_prefetched(gid)
+        if ctx.voice_client is not None and (ctx.voice_client.is_playing() or ctx.voice_client.is_paused()):
+            asyncio.create_task(self._prefetch(gid))
+        session_log(gid, f'queue shuffled ({len(items)} tracks)')
+        await ctx.send(f'Очередь перемешана ({len(items)} треков).')
 
     @commands.hybrid_command(description='Поставить трек на паузу')
     async def pause(self, ctx):
@@ -403,10 +421,10 @@ class Music(commands.Cog):
         session_log(gid, f'skipped {total} track(s)')
         await ctx.send(f'Пропущено треков: {total}.' if total > 1 else 'Трек пропущен.')
 
-    @commands.hybrid_command(description='Прыгнуть к треку в очереди по номеру')
+    @commands.hybrid_command(description='Перейти к треку в очереди по номеру')
     @app_commands.describe(position='Номер трека в очереди (начиная с 1)')
-    async def jump(self, ctx, position: int):
-        """Прыгнуть к треку в очереди по номеру."""
+    async def skipto(self, ctx, position: int):
+        """Перейти к треку в очереди по номеру."""
         if ctx.voice_client is None or not ctx.voice_client.is_playing():
             return await ctx.send('Сейчас ничего не играет.')
         if position < 1:
@@ -424,7 +442,7 @@ class Music(commands.Cog):
             self._skip_loop_once.add(gid)
         target = queue[0]
         ctx.voice_client.stop()
-        session_log(gid, f'jumped to #{position}: {format_track_label(target)}')
+        session_log(gid, f'skipto #{position}: {format_track_label(target)}')
         await ctx.send(f'Перехожу к #{position}: {format_track_label(target)}.')
 
     @commands.hybrid_command(description='Управлять режимом повтора')
@@ -434,7 +452,7 @@ class Music(commands.Cog):
         app_commands.Choice(name='track', value='track'),
         app_commands.Choice(name='queue', value='queue'),
     ])
-    async def loop(self, ctx, mode: app_commands.Choice[str]):
+    async def repeat(self, ctx, mode: app_commands.Choice[str]):
         """Управлять режимом повтора."""
         value = mode.value if hasattr(mode, 'value') else str(mode)
         if value not in ('off', 'track', 'queue'):
@@ -453,7 +471,7 @@ class Music(commands.Cog):
         else:
             self._loop_modes[gid] = value
             await ctx.send('Повтор: очередь.')
-        session_log(gid, f'loop mode: {value}')
+        session_log(gid, f'repeat mode: {value}')
 
     @commands.hybrid_command(name='queue', description='Показать очередь')
     async def queue_cmd(self, ctx):
@@ -465,17 +483,98 @@ class Music(commands.Cog):
         msg = await ctx.send(embed=view.build_embed(), view=view)
         view.message = msg
 
-    @commands.hybrid_command(description='Остановить воспроизведение и отключиться')
+    @commands.hybrid_command(description='Остановить воспроизведение и очистить очередь (без выхода)')
     async def stop(self, ctx):
-        """Остановить воспроизведение и отключиться."""
+        """Остановить воспроизведение и очистить очередь, но остаться в канале."""
         await self._ensure_deferred(ctx)
         gid = ctx.guild.id
+        if ctx.voice_client is None:
+            return await ctx.send('Я не подключён к голосовому каналу.')
+        was_active = ctx.voice_client.is_playing() or ctx.voice_client.is_paused()
         await self._reset_session(gid)
-        if ctx.voice_client is not None:
-            await ctx.voice_client.disconnect()
-        session_log(gid, 'stopped & disconnected (/stop)')
-        close_guild_session(gid)
-        await ctx.send('Остановлен.')
+        if was_active:
+            ctx.voice_client.stop()
+        session_log(gid, 'stopped (queue cleared, stayed in channel)')
+        await ctx.send('Остановлен. Очередь очищена.')
+
+    @commands.hybrid_command(name='nowplaying', aliases=['np'], description='Показать текущий трек')
+    async def nowplaying(self, ctx):
+        """Статический снапшот текущего трека (без прогресс-бара)."""
+        gid = ctx.guild.id
+        track = self._current.get(gid)
+        source = self._np_source.get(gid)
+        if track is None or source is None or ctx.voice_client is None or not (
+            ctx.voice_client.is_playing() or ctx.voice_client.is_paused()
+        ):
+            return await ctx.send('Сейчас ничего не играет.')
+        await ctx.send(embed=build_current_track_embed(track, source))
+
+    async def _apply_seek(self, ctx, target_pos: float, *, log_label: str) -> str:
+        """Сдвинуть текущий трек на target_pos (абсолютные секунды). Возвращает сообщение для пользователя."""
+        vc = ctx.voice_client
+        gid = ctx.guild.id
+        source = self._np_source.get(gid)
+        track = self._current.get(gid)
+        if source is None or track is None:
+            return 'Не могу перемотать: нет активного источника.'
+        duration = float(source.data.get('duration') or 0)
+        new_pos = max(0.0, target_pos)
+        if duration > 0 and new_pos >= duration - ALLOWED_REMAINING_LENGTH:
+            if self._loop_modes.get(gid) == 'track':
+                self._skip_loop_once.add(gid)
+            vc.stop()
+            session_log(gid, f'{log_label} past end -> skip')
+            return 'Трек пропущен (перемотка за конец).'
+
+        was_paused = vc.is_paused()
+        try:
+            new_source = YTDLSource.from_resolved(source.data, start=new_pos)
+        except Exception as exc:
+            print(f'{log_label} error: {exc!r}')
+            session_log(gid, f'{log_label} error: {exc!r}')
+            return f'Ошибка перемотки: {exc}'
+
+        # discord.py сам делает cleanup() старого source при присваивании
+        vc.source = new_source
+
+        self._np_source[gid] = new_source
+        now = time.monotonic()
+        self._track_start[gid] = now - new_pos
+        self._pause_total[gid] = 0.0
+        if was_paused:
+            self._pause_start[gid] = now
+        else:
+            self._pause_start.pop(gid, None)
+
+        session_log(gid, f'{log_label} -> {new_pos:.0f}s')
+        await self._refresh_now_playing(gid)
+        return f'Текущая позиция: {format_time(new_pos)}.'
+
+    @commands.hybrid_command(description='Перемотать на N секунд (отрицательное — назад)')
+    @app_commands.describe(seconds='Сдвиг в секундах (положительное — вперёд, отрицательное — назад)')
+    async def seek(self, ctx, seconds: int):
+        """Перемотать текущий трек на N секунд."""
+        vc = ctx.voice_client
+        if vc is None or not (vc.is_playing() or vc.is_paused()):
+            return await ctx.send('Сейчас ничего не играет.')
+        if seconds == 0:
+            return await ctx.send('Сдвиг должен быть отличен от 0.')
+        target = self._elapsed(ctx.guild.id) + seconds
+        reply = await self._apply_seek(ctx, target, log_label=f'seek {seconds:+d}s')
+        await ctx.send(reply)
+
+    @commands.hybrid_command(description='Перейти к конкретной позиции трека (секунды или mm:ss)')
+    @app_commands.describe(position='Позиция: число секунд, либо mm:ss / h:mm:ss')
+    async def seekto(self, ctx, position: str):
+        """Перейти к абсолютной позиции в треке."""
+        vc = ctx.voice_client
+        if vc is None or not (vc.is_playing() or vc.is_paused()):
+            return await ctx.send('Сейчас ничего не играет.')
+        target = _parse_time_position(position)
+        if target is None or target < 0:
+            return await ctx.send('Позиция должна быть числом секунд или строкой mm:ss / h:mm:ss.')
+        reply = await self._apply_seek(ctx, target, log_label=f'seekto {position!r}')
+        await ctx.send(reply)
 
     async def _ensure_voice(self, ctx):
         await self._ensure_deferred(ctx)
@@ -491,10 +590,6 @@ class Music(commands.Cog):
 
     @play.before_invoke
     async def _play_ensure_voice(self, ctx):
-        await self._ensure_voice(ctx)
-
-    @shuffle.before_invoke
-    async def _shuffle_ensure_voice(self, ctx):
         await self._ensure_voice(ctx)
 
 

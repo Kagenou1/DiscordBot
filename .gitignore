@@ -3,7 +3,6 @@
 .vs/
 .vscode/
 
-private.py
 .cache
 cookies.txt
 *__pycache__*

@@ -11,13 +11,14 @@ from .format import (
     progress_bar,
     source_label,
 )
-from .now_playing import PROGRESS_TICK_SECONDS, build_now_playing_embed
+from .now_playing import PROGRESS_TICK_SECONDS, build_current_track_embed, build_now_playing_embed
 from .queue import QUEUE_PAGE_SIZE, QueueView
 
 
 __all__ = [
     'build_added_playlist_embed',
     'build_added_track_embed',
+    'build_current_track_embed',
     'format_time',
     'format_track_label',
     'progress_bar',

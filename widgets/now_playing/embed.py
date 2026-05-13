@@ -47,3 +47,24 @@ def build_now_playing_embed(
     if label:
         embed.set_footer(text=f'Источник: {label}')
     return embed
+
+
+def build_current_track_embed(track: Track, source: OpusAudioSource) -> discord.Embed:
+    """Статический снапшот текущего трека — без прогресс-бара и обновлений."""
+    thumbnail = track.thumbnail or pick_thumbnail(source.data)
+    title = track.title or 'Без названия'
+    title_line = f'## [{title}]({track.url})' if track.url else f'## {title}'
+    lines: list[str] = [title_line]
+    if track.artist:
+        lines.append(track.artist)
+    embed = discord.Embed(
+        description='\n'.join(lines),
+        color=discord.Color.blurple(),
+    )
+    embed.set_author(name='Сейчас играет')
+    if thumbnail:
+        embed.set_thumbnail(url=thumbnail)
+    label = source_label(track.url)
+    if label:
+        embed.set_footer(text=f'Источник: {label}')
+    return embed

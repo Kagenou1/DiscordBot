@@ -56,19 +56,26 @@ class OpusAudioSource(discord.FFmpegOpusAudio):
         self.url = data.get('url')
 
     @classmethod
-    def from_resolved(cls, data: dict) -> 'OpusAudioSource':
-        """Собрать источник из готовых yt-dlp-подобных данных (поле url — стрим)."""
+    def from_resolved(cls, data: dict, *, start: float = 0.0) -> 'OpusAudioSource':
+        """Собрать источник из готовых yt-dlp-подобных данных (поле url — стрим).
+
+        start>0 добавляет ffmpeg-флаг -ss перед -i (быстрый поиск, для перемотки).
+        """
         stream_url = data.get('url')
         if not stream_url:
             raise RuntimeError('Не удалось получить стрим-URL.')
         acodec = (data.get('acodec') or '').lower()
         can_copy = acodec.startswith('opus')
-        _log(f'build source (acodec={acodec} abr={data.get("abr")} copy={can_copy})')
+        _log(f'build source (acodec={acodec} abr={data.get("abr")} copy={can_copy} start={start:.1f})')
+        before = _BEFORE_OPTIONS
+        if start > 0:
+            before = f'-ss {start:.3f} {before}'
         return cls(
             stream_url,
             data=data,
             codec='copy' if can_copy else None,
             bitrate=_OPUS_BITRATE,
             executable=ffmpeg_path,
-            **ffmpeg_options,
+            before_options=before,
+            options=_OUTPUT_OPTIONS,
         )
