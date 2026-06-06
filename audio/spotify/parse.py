@@ -25,10 +25,12 @@ def item_to_track(item: dict, *, resolver) -> Track | None:
     spotify_url = (item.get('external_urls') or {}).get('spotify') or ''
     images = ((item.get('album') or {}).get('images') or []) or item.get('images') or []
     thumbnail = images[0].get('url', '') if images else ''
+    duration = (item.get('duration_ms') or 0) / 1000.0
     return Track(
         url=spotify_url,
         title=title,
         artist=artist,
         thumbnail=thumbnail,
+        duration=duration,
         resolver=resolver,
     )

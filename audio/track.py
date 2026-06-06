@@ -36,6 +36,7 @@ class Track:
     title: str
     artist: str = ''
     thumbnail: str = ''
+    duration: float = 0.0  # секунды; нужно для скоринга YT-эквивалента при resolve Spotify->YT
     resolver: Optional[Resolver] = field(default=None, repr=False)
     _resolved: Optional[dict] = field(default=None, repr=False)
     _resolved_at: float = field(default=0.0, repr=False)

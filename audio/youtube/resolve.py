@@ -40,7 +40,7 @@ async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSou
             raise
         track._fallback_tried = True
         vid = await loop.run_in_executor(
-            None, lambda: ytm_catalog_lookup(track.title, track.artist)
+            None, lambda: ytm_catalog_lookup(track.title, track.artist, track.duration)
         )
         if not vid:
             raise
