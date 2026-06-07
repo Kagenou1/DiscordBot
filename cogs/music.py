@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import threading
 import time
 from collections import deque
 
@@ -74,6 +75,17 @@ class Music(commands.Cog):
                 prefetched[1].cleanup()
             except Exception:
                 pass
+
+    @staticmethod
+    def _schedule_source_cleanup(source, delay: float = 2.0):
+        """Погасить источник (ffmpeg + поток буферизации) спустя delay секунд."""
+        def _run():
+            time.sleep(delay)
+            try:
+                source.cleanup()
+            except Exception:
+                pass
+        threading.Thread(target=_run, name='src-cleanup', daemon=True).start()
 
     def _elapsed(self, gid: int) -> float:
         start = self._track_start.get(gid)
@@ -534,8 +546,13 @@ class Music(commands.Cog):
             session_log(gid, f'{log_label} error: {exc!r}')
             return f'Ошибка перемотки: {exc}'
 
-        # discord.py сам делает cleanup() старого source при присваивании
+        # set_source() в discord.py НЕ чистит старый источник — делаем это сами,
+        # иначе фоновый поток буферизации старого OpusAudioSource останется висеть.
+        # Очистку откладываем: если аудио-поток прямо сейчас залип в old.read()
+        # (недобор ровно в момент перемотки), немедленный cleanup вернул бы b''
+        # и плеер счёл бы это концом трека. За пару секунд поток уйдёт на new_source.
         vc.source = new_source
+        self._schedule_source_cleanup(source)
 
         self._np_source[gid] = new_source
         now = time.monotonic()
