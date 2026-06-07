@@ -31,6 +31,9 @@ _DERIV_SUBSTR = (
     '歌ってみた', '弾いてみた', '叩いてみた', '踊ってみた',
     'ライブ音響', 'ピアノで',
 )
+# Английские многословные/слитные формы (минусовки и пр.) — матчим по _norm-подстроке,
+# т.к. это не отдельные токены: «Off Vocal», «Vocal Off», «sped up», «slowed + reverb».
+_DERIV_NORM_SUBSTR = ('offvocal', 'vocaloff', 'spedup', 'slowedreverb')
 
 
 def _norm(s: str) -> str:
@@ -73,10 +76,12 @@ def _artist_sim(cand_artist_norm: str, target_norm: str) -> float:
 
 
 def _is_derivative(cand_title: str) -> bool:
-    low = cand_title.lower()
     if any(sub in cand_title for sub in _DERIV_SUBSTR):
         return True
-    words = set(re.findall(r'[a-z]+', low))
+    norm = _norm(cand_title)
+    if any(sub in norm for sub in _DERIV_NORM_SUBSTR):
+        return True
+    words = set(re.findall(r'[a-z]+', cand_title.lower()))
     return not words.isdisjoint(_DERIV_WORDS)
 
 
