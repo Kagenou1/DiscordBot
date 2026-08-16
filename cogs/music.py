@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import threading
 import time
 from collections import deque
 
@@ -27,6 +28,11 @@ _log = logging.getLogger('audio').info
 
 
 ALLOWED_REMAINING_LENGTH = 1
+
+# Сколько бот «терпит» одиночество в голосовом канале до авто-выхода.
+ALONE_TIMEOUT_SECONDS = 300  # 5 минут
+# Сколько бот «терпит» простой (пустая очередь, ничего не играет) до авто-выхода.
+IDLE_TIMEOUT_SECONDS = 300  # 5 минут
 
 
 def _parse_time_position(text: str) -> float | None:
@@ -59,6 +65,9 @@ class Music(commands.Cog):
         self._track_start: dict[int, float] = {}
         self._pause_start: dict[int, float] = {}
         self._pause_total: dict[int, float] = {}
+        self._alone_tasks: dict[int, asyncio.Task] = {}  # таймеры авто-выхода из пустого канала
+        self._auto_paused: set[int] = set()  # гильдии, где пауза поставлена автоматически
+        self._idle_tasks: dict[int, asyncio.Task] = {}  # таймеры авто-выхода по простою
 
     def get_queue(self, guild_id: int) -> deque[Track]:
         return self.queues.setdefault(guild_id, deque())
@@ -74,6 +83,17 @@ class Music(commands.Cog):
                 prefetched[1].cleanup()
             except Exception:
                 pass
+
+    @staticmethod
+    def _schedule_source_cleanup(source, delay: float = 2.0):
+        """Погасить источник (ffmpeg + поток буферизации) спустя delay секунд."""
+        def _run():
+            time.sleep(delay)
+            try:
+                source.cleanup()
+            except Exception:
+                pass
+        threading.Thread(target=_run, name='src-cleanup', daemon=True).start()
 
     def _elapsed(self, gid: int) -> float:
         start = self._track_start.get(gid)
@@ -220,10 +240,12 @@ class Music(commands.Cog):
 
         if chosen is None:
             self._current.pop(gid, None)
+            self._start_idle_timer(gid)  # очередь исчерпана -> начинаем отсчёт простоя
             return
 
         track, source = chosen
         self._current[gid] = track
+        self._cancel_idle_timer(gid)  # снова играем -> простой отменяется
         ctx.voice_client.play(source, after=lambda e: self._after_play(ctx, e))
         _log(f'play_next -> playing {track.title!r} in {(time.perf_counter() - t_total) * 1000:.0f} ms (prefetched={used_prefetched})')
         session_log(gid, f'playing: {format_track_label(track)} (prefetched={used_prefetched})')
@@ -288,6 +310,137 @@ class Music(commands.Cog):
         self._loop_modes.pop(gid, None)
         self._skip_loop_once.discard(gid)
         self._played.pop(gid, None)
+        self._cancel_alone_timer(gid)
+        self._cancel_idle_timer(gid)
+        self._auto_paused.discard(gid)
+
+    # --- Авто-пауза и авто-выход при опустевшем канале -------------------
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        gid = member.guild.id
+        if member.id == self.bot.user.id:
+            # Сам бот: выдернули из голосового извне -> чистим сессию;
+            # перетащили в другой канал -> пересматриваем одиночество.
+            if after.channel is None:
+                if before.channel is not None:
+                    await self._handle_forced_disconnect(gid)
+            else:
+                await self._reevaluate_alone(gid)
+            return
+        vc = member.guild.voice_client
+        if vc is None or vc.channel is None:
+            return
+        # Реагируем, только если изменение касается канала бота.
+        if after.channel != vc.channel and before.channel != vc.channel:
+            return
+        await self._reevaluate_alone(gid)
+
+    async def _reevaluate_alone(self, gid: int):
+        """Бот один в канале? -> авто-пауза + таймер выхода. Кто-то есть? -> отмена + резюме."""
+        guild = self.bot.get_guild(gid)
+        vc = guild.voice_client if guild is not None else None
+        if vc is None or vc.channel is None:
+            return
+        alone = not any(not m.bot for m in vc.channel.members)
+        if alone:
+            if vc.is_playing():
+                vc.pause()
+                self._auto_paused.add(gid)
+                if gid not in self._pause_start:
+                    self._pause_start[gid] = time.monotonic()
+                await self._refresh_now_playing(gid)
+                session_log(gid, 'auto-paused (канал опустел)')
+            self._start_alone_timer(gid)
+        else:
+            self._cancel_alone_timer(gid)
+            if gid in self._auto_paused:
+                self._auto_paused.discard(gid)
+                if vc.is_paused():
+                    vc.resume()
+                    pause_start = self._pause_start.pop(gid, None)
+                    if pause_start is not None:
+                        self._pause_total[gid] = self._pause_total.get(gid, 0.0) + (time.monotonic() - pause_start)
+                    await self._refresh_now_playing(gid)
+                    session_log(gid, 'auto-resumed (кто-то вернулся)')
+
+    def _start_alone_timer(self, gid: int):
+        task = self._alone_tasks.get(gid)
+        if task is not None and not task.done():
+            return  # таймер уже идёт
+        self._alone_tasks[gid] = asyncio.create_task(self._alone_timeout(gid))
+
+    def _cancel_alone_timer(self, gid: int):
+        task = self._alone_tasks.pop(gid, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _alone_timeout(self, gid: int):
+        try:
+            await asyncio.sleep(ALONE_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            return
+        self._alone_tasks.pop(gid, None)
+        guild = self.bot.get_guild(gid)
+        vc = guild.voice_client if guild is not None else None
+        if vc is None or vc.channel is None:
+            return
+        if any(not m.bot for m in vc.channel.members):
+            return  # кто-то успел вернуться
+        await self._reset_session(gid)
+        try:
+            await vc.disconnect()
+        except Exception:
+            pass
+        session_log(gid, f'auto-left (один в канале {ALONE_TIMEOUT_SECONDS // 60} мин)')
+        close_guild_session(gid)
+
+    def _start_idle_timer(self, gid: int):
+        task = self._idle_tasks.get(gid)
+        if task is not None and not task.done():
+            return
+        self._idle_tasks[gid] = asyncio.create_task(self._idle_timeout(gid))
+
+    def _cancel_idle_timer(self, gid: int):
+        task = self._idle_tasks.pop(gid, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _refresh_idle_timer(self, gid: int):
+        """Запустить таймер простоя, если бот подключён и реально простаивает; иначе снять."""
+        guild = self.bot.get_guild(gid)
+        vc = guild.voice_client if guild is not None else None
+        if vc is None or vc.channel is None:
+            self._cancel_idle_timer(gid)
+            return
+        if vc.is_playing() or vc.is_paused() or self.get_queue(gid):
+            self._cancel_idle_timer(gid)
+        else:
+            self._start_idle_timer(gid)
+
+    async def _idle_timeout(self, gid: int):
+        try:
+            await asyncio.sleep(IDLE_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            return
+        self._idle_tasks.pop(gid, None)
+        guild = self.bot.get_guild(gid)
+        vc = guild.voice_client if guild is not None else None
+        if vc is None or vc.channel is None:
+            return
+        if vc.is_playing() or vc.is_paused() or self.get_queue(gid):
+            return  # уже не простаивает
+        await self._reset_session(gid)
+        try:
+            await vc.disconnect()
+        except Exception:
+            pass
+        session_log(gid, f'auto-left (простой {IDLE_TIMEOUT_SECONDS // 60} мин)')
+        close_guild_session(gid)
+
+    async def _handle_forced_disconnect(self, gid: int):
+        await self._reset_session(gid)
+        session_log(gid, 'voice disconnected (externally)')
+        close_guild_session(gid)
 
     @commands.hybrid_command(description='Отключиться от голосового канала')
     async def leave(self, ctx):
@@ -305,6 +458,7 @@ class Music(commands.Cog):
     async def clear(self, ctx):
         """Очистить очередь."""
         await self._reset_session(ctx.guild.id)
+        self._refresh_idle_timer(ctx.guild.id)  # если бот теперь простаивает -> отсчёт простоя
         session_log(ctx.guild.id, 'queue cleared (/clear)')
         await ctx.send('Очередь очищена.')
 
@@ -392,6 +546,7 @@ class Music(commands.Cog):
             return await ctx.send('Сейчас не на паузе.')
         ctx.voice_client.resume()
         gid = ctx.guild.id
+        self._auto_paused.discard(gid)
         pause_start = self._pause_start.pop(gid, None)
         if pause_start is not None:
             self._pause_total[gid] = self._pause_total.get(gid, 0.0) + (time.monotonic() - pause_start)
@@ -494,6 +649,7 @@ class Music(commands.Cog):
         await self._reset_session(gid)
         if was_active:
             ctx.voice_client.stop()
+        self._refresh_idle_timer(gid)  # остались в канале и простаиваем -> отсчёт простоя
         session_log(gid, 'stopped (queue cleared, stayed in channel)')
         await ctx.send('Остановлен. Очередь очищена.')
 
@@ -534,8 +690,13 @@ class Music(commands.Cog):
             session_log(gid, f'{log_label} error: {exc!r}')
             return f'Ошибка перемотки: {exc}'
 
-        # discord.py сам делает cleanup() старого source при присваивании
+        # set_source() в discord.py НЕ чистит старый источник — делаем это сами,
+        # иначе фоновый поток буферизации старого OpusAudioSource останется висеть.
+        # Очистку откладываем: если аудио-поток прямо сейчас залип в old.read()
+        # (недобор ровно в момент перемотки), немедленный cleanup вернул бы b''
+        # и плеер счёл бы это концом трека. За пару секунд поток уйдёт на new_source.
         vc.source = new_source
+        self._schedule_source_cleanup(source)
 
         self._np_source[gid] = new_source
         now = time.monotonic()

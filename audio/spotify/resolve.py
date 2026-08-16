@@ -23,7 +23,7 @@ async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSou
 
     t0 = time.perf_counter()
     vid = await loop.run_in_executor(
-        None, lambda: ytm_catalog_lookup(track.title, track.artist)
+        None, lambda: ytm_catalog_lookup(track.title, track.artist, track.duration)
     )
     if not vid:
         raise RuntimeError(f'YouTube-эквивалент для {track.title!r} не найден.')
