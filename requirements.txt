@@ -1,0 +1,23 @@
+# Прямые зависимости проекта. Транзитивные (aiohttp, requests, certifi и пр.)
+#
+# Установка: pip install -r requirements.txt
+# Бинарники ffmpeg, deno, node и сервер токенов: python install_third_party.py
+
+discord.py[voice]==2.7.1
+yt-dlp==2026.7.4
+# провайдер GVS PO Token: с ним YouTube отдаёт opus по ссылкам, валидным сразу
+# (медиана старта 2972 мс против 7020). Генератор ставится отдельно:
+# python install_third_party.py
+bgutil-ytdlp-pot-provider==1.3.1
+# решатель JS-челленджа YouTube (nsig) локально. Без него yt-dlp тянет его
+# с GitHub на каждом старте: замерено 7.94с против 3.35с на extract_info
+yt-dlp-ejs
+ytmusicapi==1.12.2
+spotipy==2.26.0
+yandex-music==3.0.0
+
+# audioop вырезан из стандартной библиотеки в 3.13, discord.py требует бэкпорт
+audioop-lts==0.2.2; python_version >= "3.13"
+
+# опционально: ускоренный event loop под Windows, при отсутствии код молча падает на asyncio
+winloop==0.6.3; sys_platform == "win32"
