@@ -1,9 +1,8 @@
-"""YouTube-провайдер: yt-dlp + ytmusicapi.
+"""YouTube-провайдер: yt-dlp и ytmusicapi
 
-Публичные функции:
-- extract(url)   — единственная точка входа: трек/плейлист/поиск.
-- resolve(track) — добывает свежий стрим-URL для уже известного Track.
-- warm_up(loop)  — прогрев yt-dlp и ytmusicapi.
+- extract(url)   — точка входа: трек, плейлист или поиск
+- resolve(track) — свежий стрим-URL для известного Track
+- warm_up(loop)  — прогрев yt-dlp и ytmusicapi
 """
 from .extract import extract
 from .resolve import resolve

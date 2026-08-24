@@ -1,9 +1,8 @@
-"""SoundCloud-провайдер: прямой стрим через yt-dlp.
+"""SoundCloud-провайдер: прямой стрим через yt-dlp
 
-Публичные функции:
-- extract(url)   — единственная точка входа: трек/сет (плейлист/альбом).
-- resolve(track) — добывает свежий стрим-URL для уже известного Track.
-- warm_up(loop)  — заглушка (отдельный клиент не нужен, yt-dlp уже греется).
+- extract(url)   — точка входа: трек или сет
+- resolve(track) — свежий стрим-URL для известного Track
+- warm_up(loop)  — заглушка, отдельный клиент не нужен
 """
 from .extract import extract
 from .resolve import resolve

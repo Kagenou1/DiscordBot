@@ -1,19 +1,34 @@
-"""Парсинг ответов Spotify Web API в Track + регексы для распознавания ссылок."""
+"""Парсинг ответов Spotify Web API в Track и регексы ссылок"""
 import re
 
 from ..track import Track
 
 
-SPOTIFY_TRACK_RE = re.compile(r'open\.spotify\.com/track/([\w]+)')
-SPOTIFY_ALBUM_RE = re.compile(r'open\.spotify\.com/album/([\w]+)')
-SPOTIFY_PLAYLIST_RE = re.compile(r'open\.spotify\.com/playlist/([\w]+)')
+# «Поделиться» отдаёт ссылку с языковым сегментом open.spotify.com/intl-ru/track/...,
+# сегмент опционален и в идентификатор не входит
+_BASE = r'open\.spotify\.com/(?:intl-[\w-]+/)?'
+
+SPOTIFY_TRACK_RE = re.compile(_BASE + r'track/(\w+)')
+SPOTIFY_ALBUM_RE = re.compile(_BASE + r'album/(\w+)')
+SPOTIFY_PLAYLIST_RE = re.compile(_BASE + r'playlist/(\w+)')
+
+
+def playlist_entry_item(entry: dict | None) -> dict | None:
+    """Достать track-объект из элемента плейлиста
+
+    Ответ /playlists/{id}/items кладёт трек в поле item, в документации поле
+    называется track. Читаем оба, чтобы не зависеть от смены имени
+    """
+    if not entry:
+        return None
+    return entry.get('item') or entry.get('track')
 
 
 def item_to_track(item: dict, *, resolver) -> Track | None:
-    """Превратить track-объект Spotify Web API в Track.
+    """track-объект Spotify Web API -> Track
 
-    У Track.url остаётся ссылка на Spotify (для логов/дедупа), реальный стрим
-    добывает resolver через поиск на YouTube по title+artist.
+    В Track.url остаётся ссылка на Spotify для логов и дедупа, стрим добывает
+    resolver поиском на YouTube по title и artist
     """
     if not item:
         return None

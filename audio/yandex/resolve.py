@@ -1,10 +1,8 @@
-"""Получение прямого стрим-URL Yandex Music с максимальным качеством.
+"""Прямой стрим-URL Yandex Music в максимальном качестве
 
-Стратегия выбора:
-- Сначала ранжируем по приоритету кодека: flac (lossless) > mp3 > aac > he-aac.
-- Внутри одного кодека выбираем максимальный bitrate.
-- Для Plus-аккаунтов API возвращает дополнительные варианты (320 kbps mp3,
-  иногда flac), для обычных — обычно до 192 kbps mp3.
+Ранжирование: приоритет кодека flac > mp3 > aac > he-aac, внутри кодека —
+максимальный bitrate. Plus-аккаунтам API отдаёт 320 kbps mp3 и иногда flac,
+обычным — до 192 kbps mp3
 """
 import asyncio
 import logging
@@ -54,8 +52,8 @@ def _fetch_stream(track_id: str) -> dict:
     }
 
 
-async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSource:
-    """Resolver для Yandex-Track: вытащить прямой стрим в максимальном качестве."""
+async def resolve_data(track: Track, *, loop=None, timeout: int = 30) -> dict:
+    """Данные потока без поднятого ffmpeg — этим пользуется заготовка"""
     loop = loop or asyncio.get_running_loop()
     m = YA_TRACK_RE.search(track.url)
     if not m:
@@ -71,4 +69,11 @@ async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSou
         f'yandex resolve {track_id}: {data["acodec"]} {data["abr"]} kbps '
         f'in {(time.perf_counter() - t0) * 1000:.0f} ms'
     )
-    return OpusAudioSource.from_resolved(data)
+    return data
+
+
+async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSource:
+    """Resolver для Yandex-Track: прямой стрим в максимальном качестве"""
+    return OpusAudioSource.from_resolved(
+        await resolve_data(track, loop=loop, timeout=timeout))
+

@@ -1,9 +1,8 @@
-"""Yandex Music провайдер: прямой стрим через yandex_music.
+"""Yandex Music провайдер: прямой стрим через yandex_music
 
-Публичные функции:
-- extract(url)   — единственная точка входа: трек/альбом/плейлист.
-- resolve(track) — добывает свежий стрим-URL с максимальным качеством.
-- warm_up(loop)  — прогрев клиента (проверка токена).
+- extract(url)   — точка входа: трек, альбом или плейлист
+- resolve(track) — свежий стрим-URL в максимальном качестве
+- warm_up(loop)  — прогрев клиента и проверка токена
 """
 from .extract import extract
 from .resolve import resolve

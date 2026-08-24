@@ -1,21 +1,21 @@
-"""Получение свежего стрим-URL для уже известного Track."""
+"""Свежий стрим-URL для известного Track"""
 import asyncio
 import logging
 import time
 
 from ..source import OpusAudioSource
 from ..track import Track
-from .client import ytdl, ytm
+from .client import extract_info, ytm
 from .search import ytm_catalog_lookup
 
 
 _log = logging.getLogger('audio').info
 
 
-async def _ytdl_to_source(url: str, *, loop, timeout: int) -> OpusAudioSource:
+async def _ytdl_data(url: str, *, loop, timeout: int) -> dict:
     t0 = time.perf_counter()
     data = await asyncio.wait_for(
-        loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False)),
+        loop.run_in_executor(None, lambda: extract_info(url)),
         timeout=timeout,
     )
     dt = (time.perf_counter() - t0) * 1000
@@ -27,14 +27,14 @@ async def _ytdl_to_source(url: str, *, loop, timeout: int) -> OpusAudioSource:
         if data is None:
             raise RuntimeError('В плейлисте нет доступных треков.')
     _log(f'extract_info {url[-12:]} {dt:.0f} ms')
-    return OpusAudioSource.from_resolved(data)
+    return data
 
 
-async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSource:
-    """Resolver, который привязывается к Track при создании."""
+async def resolve_data(track: Track, *, loop=None, timeout: int = 30) -> dict:
+    """Данные потока без поднятого ffmpeg — этим пользуется заготовка"""
     loop = loop or asyncio.get_running_loop()
     try:
-        return await _ytdl_to_source(track.url, loop=loop, timeout=timeout)
+        return await _ytdl_data(track.url, loop=loop, timeout=timeout)
     except Exception as exc:
         if track._fallback_tried or ytm is None:
             raise
@@ -46,4 +46,11 @@ async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSou
             raise
         print(f'ytmusic fallback for {track.title!r}: {vid} (was {exc!r})')
         track.url = f'https://music.youtube.com/watch?v={vid}'
-        return await _ytdl_to_source(track.url, loop=loop, timeout=timeout)
+        return await _ytdl_data(track.url, loop=loop, timeout=timeout)
+
+
+async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSource:
+    """Resolver, привязывается к Track при создании"""
+    return OpusAudioSource.from_resolved(
+        await resolve_data(track, loop=loop, timeout=timeout))
+

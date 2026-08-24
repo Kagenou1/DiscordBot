@@ -1,9 +1,12 @@
-"""Загрузка плейлиста/альбома Spotify через Web API."""
-import asyncio
+"""Загрузка плейлиста или альбома Spotify через Web API
 
+Страницы тянутся последовательно: spotipy не потокобезопасен, параллельные
+вызовы из пула потоков ловят гонку на обновлении токена и дают 401.
+Один запрос отдаёт до 100 треков, плейлист на 1000 треков — десяток обращений
+"""
 from ..track import PlaylistInfo, Track
 from .client import sp
-from .parse import item_to_track
+from .parse import item_to_track, playlist_entry_item
 
 
 _PLAYLIST_PAGE = 100
@@ -29,27 +32,22 @@ def _album_page(album_id: str, offset: int) -> dict:
     return sp.album_tracks(album_id, limit=_ALBUM_PAGE, offset=offset)
 
 
-async def _fetch_pages(loop, fetch, total: int, page_size: int) -> list[dict]:
-    """Первая страница уже загружена снаружи; остальные тянем параллельно."""
+def _rest_pages(fetch, total: int, page_size: int) -> list[dict]:
+    """Первая страница загружена снаружи, остальные тянем последовательно"""
     if total <= page_size:
         return []
-    offsets = list(range(page_size, total, page_size))
-    return await asyncio.gather(*[
-        loop.run_in_executor(None, fetch, o) for o in offsets
-    ])
+    return [fetch(o) for o in range(page_size, total, page_size)]
 
 
-async def spotify_playlist_info(playlist_id: str, *, resolver, loop, limit: int | None = None) -> PlaylistInfo:
+def _load_playlist(playlist_id: str, *, resolver, limit: int | None) -> PlaylistInfo:
+    """Синхронная часть, выполняется целиком в одном потоке executor'а"""
     if sp is None:
         raise RuntimeError('spotipy недоступен.')
 
-    meta_future = loop.run_in_executor(
-        None, lambda: sp.playlist(playlist_id, fields='name,external_urls,images')
-    )
-    first = await loop.run_in_executor(None, _playlist_page, playlist_id, 0)
+    meta = sp.playlist(playlist_id, fields='name,external_urls,images')
+    first = _playlist_page(playlist_id, 0)
     total = int(first.get('total') or 0)
-    rest = await _fetch_pages(loop, lambda o: _playlist_page(playlist_id, o), total, _PLAYLIST_PAGE)
-    meta = await meta_future
+    rest = _rest_pages(lambda o: _playlist_page(playlist_id, o), total, _PLAYLIST_PAGE)
 
     pl_title = (meta or {}).get('name', '') if meta else ''
     pl_url = ((meta or {}).get('external_urls') or {}).get('spotify', '') if meta else ''
@@ -58,33 +56,35 @@ async def spotify_playlist_info(playlist_id: str, *, resolver, loop, limit: int 
     tracks: list[Track] = []
     for page in (first, *rest):
         for entry in page.get('items') or []:
-            track = item_to_track(entry.get('item'), resolver=resolver)
+            track = item_to_track(playlist_entry_item(entry), resolver=resolver)
             if track is None:
                 continue
             tracks.append(track)
             if limit is not None and len(tracks) >= limit:
-                if not pl_thumb:
-                    pl_thumb = tracks[0].thumbnail
-                return PlaylistInfo(tracks=tracks, title=pl_title, url=pl_url, thumbnail=pl_thumb, kind='playlist')
+                break
+        if limit is not None and len(tracks) >= limit:
+            break
 
     if not pl_thumb and tracks:
         pl_thumb = tracks[0].thumbnail
     return PlaylistInfo(tracks=tracks, title=pl_title, url=pl_url, thumbnail=pl_thumb, kind='playlist')
 
 
-async def spotify_album_info(album_id: str, *, resolver, loop, limit: int | None = None) -> PlaylistInfo:
+def _load_album(album_id: str, *, resolver, limit: int | None) -> PlaylistInfo:
+    """Синхронная часть, выполняется целиком в одном потоке executor'а"""
     if sp is None:
         raise RuntimeError('spotipy недоступен.')
 
-    album = await loop.run_in_executor(None, lambda: sp.album(album_id))
+    album = sp.album(album_id)
     album_url = (album.get('external_urls') or {}).get('spotify') or ''
     album_title = album.get('name') or ''
+    album_artist = ', '.join(a.get('name', '') for a in (album.get('artists') or []) if a.get('name'))
     album_thumb = _images_to_thumbnail(album.get('images'))
 
     # sp.album уже отдаёт первые 50 треков под album['tracks']
     embedded = (album.get('tracks') or {}).get('items') or []
     total = int((album.get('tracks') or {}).get('total') or len(embedded))
-    rest = await _fetch_pages(loop, lambda o: _album_page(album_id, o), total, _ALBUM_PAGE)
+    rest = _rest_pages(lambda o: _album_page(album_id, o), total, _ALBUM_PAGE)
 
     tracks: list[Track] = []
     for item in (*embedded, *(it for page in rest for it in page.get('items') or [])):
@@ -97,6 +97,19 @@ async def spotify_album_info(album_id: str, *, resolver, loop, limit: int | None
             track.thumbnail = album_thumb
         tracks.append(track)
         if limit is not None and len(tracks) >= limit:
-            return PlaylistInfo(tracks=tracks, title=album_title, url=album_url, thumbnail=album_thumb, kind='album')
+            break
 
-    return PlaylistInfo(tracks=tracks, title=album_title, url=album_url, thumbnail=album_thumb, kind='album')
+    return PlaylistInfo(tracks=tracks, title=album_title, artist=album_artist,
+                        url=album_url, thumbnail=album_thumb, kind='album')
+
+
+async def spotify_playlist_info(playlist_id: str, *, resolver, loop, limit: int | None = None) -> PlaylistInfo:
+    return await loop.run_in_executor(
+        None, lambda: _load_playlist(playlist_id, resolver=resolver, limit=limit)
+    )
+
+
+async def spotify_album_info(album_id: str, *, resolver, loop, limit: int | None = None) -> PlaylistInfo:
+    return await loop.run_in_executor(
+        None, lambda: _load_album(album_id, resolver=resolver, limit=limit)
+    )

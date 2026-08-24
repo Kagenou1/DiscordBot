@@ -1,4 +1,4 @@
-"""Главный извлекатель SoundCloud: ссылка -> Track или PlaylistInfo."""
+"""Извлекатель SoundCloud: ссылка -> Track либо PlaylistInfo"""
 import asyncio
 import logging
 import time
@@ -13,7 +13,7 @@ _log = logging.getLogger('audio').info
 
 
 async def extract(url: str, *, loop=None, timeout: int = 30):
-    """Возвращает ('track', Track) или ('playlist', PlaylistInfo)."""
+    """('track', Track) либо ('playlist', PlaylistInfo)"""
     loop = loop or asyncio.get_running_loop()
     t_total = time.perf_counter()
 

@@ -1,4 +1,4 @@
-"""Инициализация Yandex Music клиента (синглтон на процесс)."""
+"""Инициализация Yandex Music клиента, синглтон на процесс"""
 import logging
 
 from yandex_music import Client

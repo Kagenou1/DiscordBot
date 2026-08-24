@@ -1,11 +1,11 @@
-"""Главный извлекатель: ссылка/поиск -> Track или список Track."""
+"""Извлекатель: ссылка или поиск -> Track либо PlaylistInfo"""
 import asyncio
 import logging
 import time
 
 from ..track import PlaylistInfo, Track
-from .client import ytdl, ytm
-from .parse import YTM_PLAYLIST_RE, YTM_WATCH_RE, entry_to_track
+from .client import extract_info, ytm
+from .parse import YTM_PLAYLIST_RE, YTM_WATCH_RE, as_music_url, entry_to_track
 from .playlist import _pick_playlist_thumbnail, ytm_playlist_info, ytm_square_thumbnail
 from .resolve import resolve
 
@@ -14,7 +14,7 @@ _log = logging.getLogger('audio').info
 
 
 async def extract(url: str, *, loop=None, timeout: int = 30):
-    """Возвращает ('track', Track) или ('playlist', list[Track])."""
+    """('track', Track) либо ('playlist', PlaylistInfo)"""
     loop = loop or asyncio.get_running_loop()
     t_total = time.perf_counter()
 
@@ -38,22 +38,29 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
 
     t0 = time.perf_counter()
     data = await asyncio.wait_for(
-        loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False)),
+        loop.run_in_executor(None, lambda: extract_info(url)),
         timeout=timeout,
     )
     _log(f'ytdl extract_info (extract): {(time.perf_counter() - t0) * 1000:.0f} ms')
     if data is None:
         raise RuntimeError('Ничего не найдено или ресурс недоступен.')
 
+    # пришли с YT Music — значит и уводить пользователя должны туда же
+    from_music = 'music.youtube.com' in url
+
     if 'entries' in data:
         tracks = [t for t in (entry_to_track(e, resolver=resolve) for e in data['entries']) if t]
         if not tracks:
             raise RuntimeError('Плейлист пуст или недоступен.')
+        if from_music:
+            for item in tracks:
+                item.url = as_music_url(item.url)
         pl_thumbnail = _pick_playlist_thumbnail(data.get('thumbnails') or [], tracks)
         info = PlaylistInfo(
             tracks=tracks,
             title=data.get('title') or '',
-            url=data.get('webpage_url') or url,
+            url=(as_music_url(data.get('webpage_url') or url) if from_music
+                 else (data.get('webpage_url') or url)),
             thumbnail=pl_thumbnail,
             kind='playlist',
         )
@@ -65,10 +72,11 @@ async def extract(url: str, *, loop=None, timeout: int = 30):
         title=data.get('title') or 'Без названия',
         resolver=resolve,
     )
-    # yt-dlp нормализует music.youtube.com -> www.youtube.com и отдаёт 16:9 видео-кадр;
-    # для исходных music.youtube.com ссылок дотягиваем квадратную обложку.
+    # yt-dlp нормализует music.youtube.com -> www.youtube.com и отдаёт 16:9 кадр,
+    # для исходных music.youtube.com ссылок дотягиваем квадратную обложку
     ytm_match = YTM_WATCH_RE.search(url)
     if ytm_match:
+        track.url = as_music_url(track.url)
         square = await loop.run_in_executor(None, ytm_square_thumbnail, ytm_match.group(1))
         if square:
             track.thumbnail = square

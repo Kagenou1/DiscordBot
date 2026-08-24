@@ -1,8 +1,7 @@
-"""Получение стрим-URL для Spotify-трека через поиск на YouTube.
+"""Стрим-URL для Spotify-трека через поиск на YouTube
 
-Spotify Web API не отдаёт прямой аудио-поток, поэтому resolve для
-Spotify-Track = найти эквивалент на YouTube Music и построить
-OpusAudioSource через yt-dlp.
+Web API не отдаёт аудио-поток, поэтому resolve = найти эквивалент
+на YouTube Music и построить OpusAudioSource через yt-dlp
 """
 import asyncio
 import logging
@@ -10,15 +9,15 @@ import time
 
 from ..source import OpusAudioSource
 from ..track import Track
-from ..youtube.client import ytdl
+from ..youtube.client import extract_info
 from ..youtube.search import ytm_catalog_lookup
 
 
 _log = logging.getLogger('audio').info
 
 
-async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSource:
-    """Resolver для Spotify-Track: ищем по title+artist на YT Music."""
+async def resolve_data(track: Track, *, loop=None, timeout: int = 30) -> dict:
+    """Данные потока без поднятого ffmpeg — этим пользуется заготовка"""
     loop = loop or asyncio.get_running_loop()
 
     t0 = time.perf_counter()
@@ -32,7 +31,7 @@ async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSou
 
     t1 = time.perf_counter()
     data = await asyncio.wait_for(
-        loop.run_in_executor(None, lambda: ytdl.extract_info(yt_url, download=False)),
+        loop.run_in_executor(None, lambda: extract_info(yt_url)),
         timeout=timeout,
     )
     dt = (time.perf_counter() - t1) * 1000
@@ -44,4 +43,11 @@ async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSou
         if data is None:
             raise RuntimeError('В плейлисте нет доступных треков.')
     _log(f'extract_info {yt_url[-12:]} {dt:.0f} ms')
-    return OpusAudioSource.from_resolved(data)
+    return data
+
+
+async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSource:
+    """Resolver для Spotify-Track: поиск по title и artist на YT Music"""
+    return OpusAudioSource.from_resolved(
+        await resolve_data(track, loop=loop, timeout=timeout))
+

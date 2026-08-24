@@ -1,4 +1,4 @@
-"""Прогрев Spotify-клиента на старте бота."""
+"""Прогрев Spotify-клиента на старте"""
 import logging
 import time
 
@@ -9,7 +9,7 @@ _log = logging.getLogger('audio').info
 
 
 async def warm_up(loop) -> None:
-    """Чтобы первый /play не платил за получение OAuth-токена."""
+    """Первый /play не должен платить за получение OAuth-токена"""
     if sp is None:
         return
     t0 = time.perf_counter()

@@ -1,19 +1,18 @@
-"""Быстрый путь для плейлистов YT Music — JSON API вместо yt-dlp."""
+"""Быстрый путь для плейлистов YT Music: JSON API вместо yt-dlp"""
 from ..track import PlaylistInfo, Track
 from .client import ytm
 
 
-# Кэш квадратной обложки YTM-трека: video_id -> url. Растёт за время жизни процесса,
-# но запись очень лёгкая (короткая строка) и реальный лимит — количество разных
-# треков, которые юзер реально открывал. Дёшевле любого LRU.
+# кэш квадратной обложки: video_id -> url, живёт всё время процесса;
+# запись — короткая строка, объём ограничен числом реально открытых треков
 _thumbnail_cache: dict[str, str] = {}
 
 
 def ytm_square_thumbnail(video_id: str) -> str:
-    """Квадратная обложка альбома для YT Music трека через watch-плейлист.
+    """Квадратная обложка альбома через watch-плейлист
 
-    yt-dlp для music.youtube.com возвращает 16:9 видеокадр; ytm.get_watch_playlist
-    отдаёт ту же square-обложку, что мы используем в эмбеде «добавлен плейлист».
+    yt-dlp для music.youtube.com возвращает 16:9 кадр, get_watch_playlist отдаёт
+    ту же square-обложку, что используется в эмбеде плейлиста
     """
     cached = _thumbnail_cache.get(video_id)
     if cached is not None:
@@ -35,8 +34,7 @@ def ytm_square_thumbnail(video_id: str) -> str:
 
 
 def _is_auto_yt_cover(url: str) -> bool:
-    # автосгенерированные коллажи YT Music отдаются с домена каналов yt3.googleusercontent.com
-    # с суффиксом =sN — Discord их часто не может прорезолвить
+    # автоколлажи YT Music приходят с yt3.googleusercontent.com, Discord их часто не резолвит
     return 'yt3.googleusercontent.com' in url
 
 
@@ -61,11 +59,13 @@ def ytm_playlist_info(playlist_id: str, *, resolver, limit: int | None = None) -
         artist = ', '.join(a.get('name', '') for a in artists if a.get('name'))
         thumbs = item.get('thumbnails') or []
         thumbnail = thumbs[-1].get('url', '') if thumbs else ''
+        dur = item.get('duration_seconds')
         tracks.append(Track(
             url=f'https://music.youtube.com/watch?v={vid}',
             title=title,
             artist=artist,
             thumbnail=thumbnail,
+            duration=float(dur) if dur else 0.0,
             resolver=resolver,
         ))
     pl_thumbnail = _pick_playlist_thumbnail(data.get('thumbnails') or [], tracks)
