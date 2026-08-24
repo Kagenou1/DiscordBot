@@ -1,4 +1,4 @@
-"""Виджет очереди с пагинацией."""
+"""Виджет очереди с пагинацией"""
 from .view import QUEUE_PAGE_SIZE, QueueView
 
 

@@ -1,4 +1,4 @@
-"""Выбор обложки из метаданных yt-dlp."""
+"""Выбор обложки из метаданных yt-dlp"""
 
 
 def pick_thumbnail(data: dict) -> str | None:
