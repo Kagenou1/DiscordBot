@@ -1,4 +1,4 @@
-"""Подпись трека: 'Title — Artist' или просто 'Title'."""
+"""Подпись трека: 'Title — Artist' либо 'Title'"""
 from audio import Track
 
 

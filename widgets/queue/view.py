@@ -1,4 +1,4 @@
-"""View с пагинацией очереди (◀ ▶ ⏮ ⏭ 🔄 ✖)."""
+"""View с пагинацией очереди (◀ ▶ ⏮ ⏭ 🔄 ✖)"""
 import discord
 
 from audio import Track
@@ -10,12 +10,13 @@ QUEUE_PAGE_SIZE = 20
 
 
 class QueueView(discord.ui.View):
-    def __init__(self, get_items, *, page_size: int = QUEUE_PAGE_SIZE):
+    def __init__(self, get_items, *, page_size: int = QUEUE_PAGE_SIZE, owner_id: int | None = None):
         super().__init__(timeout=180)
         self.get_items = get_items
         self.items: list[Track] = list(get_items())
         self.page_size = page_size
         self.page = 0
+        self.owner_id = owner_id
         self.message: discord.Message | None = None
         self._recompute_max_page()
         self._sync_buttons()
@@ -44,6 +45,15 @@ class QueueView(discord.ui.View):
             page_size=self.page_size,
             max_page=self.max_page,
         )
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Кнопки доступны только вызвавшему команду"""
+        if self.owner_id is None or interaction.user.id == self.owner_id:
+            return True
+        await interaction.response.send_message(
+            'Это чужой список — вызовите /queue сами', ephemeral=True,
+        )
+        return False
 
     async def on_timeout(self):
         if self.message is not None:

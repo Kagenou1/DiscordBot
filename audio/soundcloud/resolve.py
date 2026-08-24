@@ -1,4 +1,4 @@
-"""Получение свежего стрим-URL SoundCloud через yt-dlp."""
+"""Свежий стрим-URL SoundCloud через yt-dlp"""
 import asyncio
 import logging
 import time
@@ -11,8 +11,8 @@ from .client import sc_ytdl
 _log = logging.getLogger('audio').info
 
 
-async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSource:
-    """Resolver, привязывается к Track при создании."""
+async def resolve_data(track: Track, *, loop=None, timeout: int = 30) -> dict:
+    """Данные потока без поднятого ffmpeg — этим пользуется заготовка"""
     loop = loop or asyncio.get_running_loop()
     t0 = time.perf_counter()
     data = await asyncio.wait_for(
@@ -30,4 +30,11 @@ async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSou
     if 'preview' in (data.get('format_id') or '').lower() or '/preview/' in (data.get('url') or ''):
         raise RuntimeError('Трек SoundCloud доступен только в виде превью (SC Go+).')
     _log(f'soundcloud extract_info {track.url[-16:]} {dt:.0f} ms')
-    return OpusAudioSource.from_resolved(data)
+    return data
+
+
+async def resolve(track: Track, *, loop=None, timeout: int = 30) -> OpusAudioSource:
+    """Resolver, привязывается к Track при создании"""
+    return OpusAudioSource.from_resolved(
+        await resolve_data(track, loop=loop, timeout=timeout))
+

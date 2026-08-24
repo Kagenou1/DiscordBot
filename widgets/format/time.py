@@ -1,4 +1,4 @@
-"""Секунды -> 'M:SS' или 'H:MM:SS'."""
+"""Секунды -> 'M:SS' либо 'H:MM:SS'"""
 
 
 def format_time(seconds: float) -> str:

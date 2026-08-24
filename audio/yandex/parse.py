@@ -1,4 +1,4 @@
-"""Парсинг ответов Yandex Music API в Track + регексы для распознавания ссылок."""
+"""Парсинг ответов Yandex Music API в Track и регексы ссылок"""
 import re
 
 from ..track import Track
@@ -11,7 +11,7 @@ YA_PLAYLIST_UUID_RE = re.compile(r'music\.yandex\.(?:ru|by|kz|com)/playlists/([\
 
 
 def cover_url(cover_uri: str | None, size: str = '400x400') -> str:
-    """Превратить cover_uri вида 'avatars.yandex.net/.../%%' в полный URL."""
+    """cover_uri вида avatars.yandex.net/.../%% -> полный URL"""
     if not cover_uri:
         return ''
     uri = cover_uri.replace('%%', size) if '%%' in cover_uri else cover_uri
@@ -19,7 +19,7 @@ def cover_url(cover_uri: str | None, size: str = '400x400') -> str:
 
 
 def ya_track_to_track(ya_track, *, resolver, album_id=None) -> Track | None:
-    """Превратить yandex_music.Track в наш Track. None если трек недоступен."""
+    """yandex_music.Track -> Track, None если трек недоступен"""
     if ya_track is None:
         return None
     if not getattr(ya_track, 'available', True):

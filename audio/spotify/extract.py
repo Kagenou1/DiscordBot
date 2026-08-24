@@ -1,4 +1,4 @@
-"""Главный извлекатель Spotify: ссылка -> Track или список Track."""
+"""Извлекатель Spotify: ссылка -> Track либо PlaylistInfo"""
 import asyncio
 import logging
 import time
@@ -18,7 +18,7 @@ _log = logging.getLogger('audio').info
 
 
 async def extract(url: str, *, loop=None, timeout: int = 30):
-    """Возвращает ('track', Track) или ('playlist', list[Track])."""
+    """('track', Track) либо ('playlist', PlaylistInfo)"""
     loop = loop or asyncio.get_running_loop()
     t_total = time.perf_counter()
 

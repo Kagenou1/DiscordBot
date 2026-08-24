@@ -1,8 +1,9 @@
-"""Прогрев yt-dlp/Deno/ytmusicapi на старте бота."""
+"""Прогрев yt-dlp, Deno и ytmusicapi на старте, запуск сервера токенов"""
 import asyncio
 import logging
 import time
 
+from . import pot
 from .client import ytdl, ytm
 
 
@@ -13,8 +14,17 @@ _WARM_URL = 'https://music.youtube.com/watch?v=lYBUbBu4W08&si=8Ielbx7nNY3fsXw6'
 
 
 async def warm_up(loop) -> None:
-    """Чтобы первый /play не платил холодный старт инструментов."""
+    """Первый /play не должен платить за холодный старт инструментов"""
     t0 = time.perf_counter()
+
+    async def warm_pot():
+        """Сервер токенов: строит чеканщика BotGuard около секунды, дальше
+        выдаёт токены за миллисекунды. Без него бот работает, просто медленнее
+        стартуют треки"""
+        if not await loop.run_in_executor(None, pot.start):
+            _log('pot: сервер недоступен, треки будут стартовать медленнее')
+            return
+        await loop.run_in_executor(None, pot.ready)
 
     async def warm_ytdl():
         try:
@@ -32,5 +42,5 @@ async def warm_up(loop) -> None:
         except Exception as exc:
             _log(f'ytmusicapi pre-warm failed: {exc!r}')
 
-    await asyncio.gather(warm_ytdl(), warm_ytm())
+    await asyncio.gather(warm_ytdl(), warm_ytm(), warm_pot())
     _log(f'youtube warm-up done in {(time.perf_counter() - t0) * 1000:.0f} ms')

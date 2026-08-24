@@ -1,4 +1,4 @@
-"""Прогрев Yandex Music клиента на старте бота."""
+"""Прогрев Yandex Music клиента на старте"""
 import logging
 import time
 
@@ -9,7 +9,7 @@ _log = logging.getLogger('audio').info
 
 
 async def warm_up(loop) -> None:
-    """Дешёвая проверка токена + прогрев соединения."""
+    """Проверка токена и прогрев соединения"""
     if yandex_client is None:
         return
     t0 = time.perf_counter()
